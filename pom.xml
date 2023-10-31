@@ -11,6 +11,12 @@
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
+        <title>Kafka Connect JDBC Audit Sink Connector</title>
+        <connect.component.owner.username>BNHTech</connect.component.owner.username>
+        <connect.component.description>Kafka Connect JDBC Audit Sink Connector</connect.component.description>
+        <ownerType>organization</ownerType>
+        <connect.component.componentTypes>sink
+        </connect.component.componentTypes>
     </properties>
     <repositories>
         <repository>
@@ -19,7 +25,101 @@
             <url>https://packages.confluent.io/maven/</url>
         </repository>
     </repositories>
+    <build>
+        <!-- To define the plugin version in your parent POM -->
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <inherited>true</inherited>
+                    <configuration>
+                        <compilerArgs>
+                            <arg>-Xlint:all</arg>
+                        </compilerArgs>
+                    </configuration>
+                </plugin>
 
+                <plugin>
+                    <groupId>io.confluent</groupId>
+                    <artifactId>kafka-connect-maven-plugin</artifactId>
+                    <version>0.12.0</version>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>kafka-connect</goal>
+                            </goals>
+                            <configuration>
+                                <title>Kafka Connect JDBC Audit Sink Connector</title>
+                                <ownerUsername>BNHTech</ownerUsername>
+                                <description>Kafka Connect JDBC Audit Sink Connector</description>
+                                <ownerType>organization</ownerType>
+                                <componentTypes>
+                                    <componentType>sink</componentType>
+                                </componentTypes>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <trimStackTrace>false</trimStackTrace>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <!--normal integration tests should not run the memory-restricted tests -->
+                            <id>integration-test</id>
+                            <configuration>
+                                <excludes>
+                                    <exclude>**/*OOM*.java</exclude>
+                                </excludes>
+                                <trimStackTrace>false</trimStackTrace>
+                            </configuration>
+                        </execution>
+                        <execution>
+                            <id>integration-test-memory-restricted</id>
+                            <goals>
+                                <goal>integration-test</goal>
+                            </goals>
+                            <configuration>
+                                <!-- out-of-memory tests should have a restricted heap size-->
+                                <argLine>@{argLine} -Djava.awt.headless=true -Xmx128M</argLine>
+                                <includes>
+                                    <include>**/*OOM*.java</include>
+                                </includes>
+                                <trimStackTrace>false</trimStackTrace>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-assembly-plugin</artifactId>
+                    <configuration>
+                        <descriptors>
+                            <descriptor>src/assembly/development.xml</descriptor>
+                            <descriptor>src/assembly/package.xml</descriptor>
+                        </descriptors>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <id>make-assembly</id>
+                            <phase>package</phase>
+                            <goals>
+                                <goal>single</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+
+            </plugins>
+        </pluginManagement>
+    </build>
     <dependencies>
         <!-- https://mvnrepository.com/artifact/io.confluent/kafka-connect-jdbc -->
         <dependency>
@@ -57,6 +157,6 @@
             <artifactId>derby</artifactId>
             <version>10.15.2.0</version>
         </dependency>
-
     </dependencies>
+
 </project>

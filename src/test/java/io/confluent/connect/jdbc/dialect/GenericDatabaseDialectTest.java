@@ -250,7 +250,7 @@ public class GenericDatabaseDialectTest extends BaseDialectTest<GenericDatabaseD
     @Test
     public void testBuildDeleteAsUpdateStatement() {
         newDialectFor(TABLE_TYPES, null);
-        List<ColumnId> columns = Set.of("UPDATE_TIME", "TABLE_NAME").stream().map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
+        List<ColumnId> columns = List.of("TABLE_NAME", "UPDATE_TIME").stream().map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = dialect.expressionBuilder();
         expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ");
         expressionBuilder.appendList().delimitedBy(", ")
@@ -262,7 +262,7 @@ public class GenericDatabaseDialectTest extends BaseDialectTest<GenericDatabaseD
                 .appendStringQuoted("D");
 
         assertEquals(
-                "UPDATE \"myTable\" SET \"myTable\".\"OP_TYPE\" = 'D' WHERE \"RECID\" = ?",
+                "UPDATE \"myTable\" SET \"TABLE_NAME\" = ?, \"UPDATE_TIME\" = ? WHERE \"myTable\".\"RECID\" = ? AND \"myTable\".\"OP_TYPE\" != 'D'",
                 expressionBuilder.toString());
     }
 
