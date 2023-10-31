@@ -1,0 +1,16 @@
+----------------------------------------------------------------
+Wed Nov 01 02:24:02 ICT 2023:
+Booting Derby version The Apache Software Foundation - Apache Derby - 10.15.2.0 - (1873585): instance a816c00e-018b-8731-61c5-00000795c800 
+on database directory /Users/hieund/work/code/java/kafka-jdbc-sink-connector/__test_database_default with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@251a69d7 
+Loaded from file:/Users/hieund/.m2/repository/org/apache/derby/derby/10.15.2.0/derby-10.15.2.0.jar
+java.vendor=Oracle Corporation
+java.runtime.version=17.0.7+8-LTS-224
+user.dir=/Users/hieund/work/code/java/kafka-jdbc-sink-connector
+os.name=Mac OS X
+os.arch=aarch64
+os.version=13.4
+derby.system.home=null
+Database Class Loader started - derby.database.classpath=''
+----------------------------------------------------------------
+Wed Nov 01 02:24:02 ICT 2023:
+Shutting down instance a816c00e-018b-8731-61c5-00000795c800 on database directory /Users/hieund/work/code/java/kafka-jdbc-sink-connector/__test_database_default with class loader jdk.internal.loader.ClassLoaders$AppClassLoader@251a69d7 
