@@ -10,6 +10,7 @@ import io.confluent.connect.jdbc.sink.metadata.SchemaPair;
 import io.confluent.connect.jdbc.util.ColumnId;
 import io.confluent.connect.jdbc.util.ExpressionBuilder;
 import io.confluent.connect.jdbc.util.TableId;
+import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
@@ -20,32 +21,27 @@ import org.slf4j.LoggerFactory;
 import vn.bnh.connect.jdbc.sink.JdbcAuditSinkConfig;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedRecords {
     private final JdbcAuditSinkConfig config;
-    private static final String TOMBSTONE_IDENTIFIER = "_TOMBSTONE";
-    private Schema deleteOpKeySchema = null;
     private Schema deleteOpValueSchema = null;
     private final boolean isDeleteAsUpdate;
     private static final Logger log = LoggerFactory.getLogger(BufferedRecords.class);
     private final TableId tableId;
     private final DatabaseDialect dbDialect;
     private final DbStructure dbStructure;
-    private final Connection connection;
+    final Connection connection;
     private List<SinkRecord> records = new ArrayList();
     private Schema keySchema;
     private Schema valueSchema;
-    private RecordValidator recordValidator;
-    private FieldsMetadata fieldsMetadata;
+    FieldsMetadata fieldsMetadata;
     private PreparedStatement updatePreparedStatement;
     private DatabaseDialect.StatementBinder updateStatementBinder;
     private PreparedStatement deleteAsUpdatePreparedStatement;
     private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
+    private RecordValidator recordValidator;
 
     public BufferedRecords(
             JdbcAuditSinkConfig config,
@@ -61,33 +57,51 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         this.dbStructure = dbStructure;
         this.connection = connection;
         this.isDeleteAsUpdate = config.deleteMode.equals(JdbcAuditSinkConfig.DeleteMode.UPDATE);
+        log.debug("DELETE as UPDATE mode: {}", this.isDeleteAsUpdate);
+        this.recordValidator = RecordValidator.create(config);
+
     }
 
     private void initDeleteAsUpdateSchema(SinkRecord sinkRecord) throws SQLException {
-        SchemaBuilder builder = SchemaBuilder.struct();
-        builder.field(config.deleteAsUpdateKey, sinkRecord.keySchema().field(config.deleteAsUpdateKey).schema());
-        this.deleteOpKeySchema = builder.build();
+        log.debug("Begin constructing DELETE as UPDATE value schema");
         SchemaBuilder valueBuilder = SchemaBuilder.struct();
-        sinkRecord.valueSchema().fields().stream()
-                .filter(f -> config.deleteAsUpdateValueFields.contains(f.name()))
-                .forEach(f -> valueBuilder.field(f.name(), f.schema()));
+        config.deleteAsUpdateValueFields.forEach(field -> {
+            Field f = sinkRecord.valueSchema().field(field);
+            log.debug("{} - {} - {}", f.name(), f.schema(), config.deleteAsUpdateValueFields);
+            valueBuilder.field(field, f.schema());
+        });
         this.deleteOpValueSchema = valueBuilder.build();
+        log.debug("DELETE as UPDATE value schema: {}", this.deleteOpValueSchema);
+        log.debug("End constructing DELETE as UPDATE value schema");
+
+        log.debug("Begin constructing DELETE as UPDATE SQL statement");
         String deleteAsUpdateSql = this.getDeleteAsUpdateSql();
+        log.info("DELETE as UPDATE SQL statement: {}", deleteAsUpdateSql);
+        log.debug("End constructing DELETE as UPDATE SQL statement");
+
+        log.debug("Begin constructing DELETE as UPDATE prepared statement");
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
-        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, this.config.pkMode, new SchemaPair(deleteOpKeySchema, deleteOpValueSchema), this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        log.debug("End constructing DELETE as UPDATE prepared statement");
+
+        log.debug("Begin constructing DELETE as UPDATE statement binder");
+        SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
+        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.config.pkMode, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
+
+        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, this.config.pkMode, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        log.debug("End constructing DELETE as UPDATE statement binder");
 
     }
 
     private SinkRecord convertDeleteAsUpdateRecord(SinkRecord sinkRecord) {
-        String id = ((Struct) sinkRecord.key()).get(config.deleteAsUpdateKey).toString().replace(TOMBSTONE_IDENTIFIER, "");
-        Struct newKey = new Struct(deleteOpKeySchema);
-        newKey.put(config.deleteAsUpdateKey, id);
+        log.debug("Begin convert DELETE as UPDATE");
         Struct oldValue = (Struct) sinkRecord.value();
         Struct newValue = new Struct(deleteOpValueSchema);
         deleteOpValueSchema.fields().forEach(f -> {
-            newValue.put(f, oldValue.get(f));
+            log.debug("{}", f);
+            newValue.put(f, oldValue.get(f.name()));
         });
-        return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), deleteOpKeySchema, newKey, deleteOpValueSchema, newValue, sinkRecord.kafkaOffset());
+        log.debug("UPDATE as DELETE record value: {}", newValue);
+        return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), deleteOpValueSchema, newValue, sinkRecord.kafkaOffset());
 
     }
 
@@ -99,13 +113,14 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         }
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
-            if (((Struct) sinkRecord.key()).getString(config.deleteAsUpdateKey).endsWith(TOMBSTONE_IDENTIFIER) && isDeleteAsUpdate) {
+            if (isDeleteAsUpdate && ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName).equals(config.deleteAsUpdateColValue)) {
                 sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
                 deleteAsUpdateStatementBinder.bindRecord(sinkRecord);
             } else {
                 updateStatementBinder.bindRecord(sinkRecord);
             }
         }
+        executeDeletes();
         executeUpdates();
 
         final List<SinkRecord> flushedRecords = records;
@@ -116,10 +131,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     @Override
     public List<SinkRecord> add(SinkRecord sinkRecord) throws SQLException, TableAlterOrCreateException {
-        if (isDeleteAsUpdate && deleteOpKeySchema == null) {
-            initDeleteAsUpdateSchema(sinkRecord);
-        }
         this.recordValidator.validate(sinkRecord);
+        if (isDeleteAsUpdate && deleteOpValueSchema == null) {
+            log.debug("Begin Initialize DELETE as UPDATE configurations");
+            initDeleteAsUpdateSchema(sinkRecord);
+            log.debug("End Initialize DELETE as UPDATE configurations");
+        }
         List<SinkRecord> flushed = new ArrayList();
         boolean schemaChanged = false;
         if (!Objects.equals(this.keySchema, sinkRecord.keySchema())) {
@@ -153,18 +170,25 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     String getDeleteAsUpdateSql() {
-        List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
+        List<ColumnId> columns = config.deleteAsUpdateValueFields.stream()
+                .filter(f -> !f.equals(config.deleteAsUpdateKey))
+                .map(f -> new ColumnId(this.tableId, f))
+                .collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
         expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
-                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue)
+                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ")
+                .appendStringQuoted(config.deleteAsUpdateColValue)
                 .append(", ");
         expressionBuilder.appendList().delimitedBy(", ")
                 .transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
-        expressionBuilder.append(" WHERE ").append(new ColumnId(this.tableId, config.deleteAsUpdateKey)).append(" = ?")
-                .append(" AND ")
+        expressionBuilder.append(" WHERE ");
+        expressionBuilder.append(new ColumnId(this.tableId, config.deleteAsUpdateKey))
+                .append(" = ?");
+        expressionBuilder.append(" AND ")
                 .append(new ColumnId(this.tableId, config.deleteAsUpdateColName))
                 .append(" != ")
                 .appendStringQuoted(config.deleteAsUpdateColValue);
+
         return expressionBuilder.toString();
     }
 
@@ -195,6 +219,16 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     private void executeUpdates() throws SQLException {
         int[] batchStatus = updatePreparedStatement.executeBatch();
+        for (int updateCount : batchStatus) {
+            if (updateCount == Statement.EXECUTE_FAILED) {
+                throw new BatchUpdateException(
+                        "Execution failed for part of the batch update", batchStatus);
+            }
+        }
+    }
+
+    private void executeDeletes() throws SQLException {
+        int[] batchStatus = deleteAsUpdatePreparedStatement.executeBatch();
         for (int updateCount : batchStatus) {
             if (updateCount == Statement.EXECUTE_FAILED) {
                 throw new BatchUpdateException(

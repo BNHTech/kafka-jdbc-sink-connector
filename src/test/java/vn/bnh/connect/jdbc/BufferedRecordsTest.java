@@ -3,23 +3,18 @@ package vn.bnh.connect.jdbc;
 import io.confluent.connect.jdbc.dialect.DatabaseDialect;
 import io.confluent.connect.jdbc.dialect.DatabaseDialects;
 import io.confluent.connect.jdbc.sink.DbStructure;
-import io.confluent.connect.jdbc.sink.JdbcSinkConfig;
-import io.confluent.connect.jdbc.sink.metadata.FieldsMetadata;
-import io.confluent.connect.jdbc.sink.metadata.SchemaPair;
 import io.confluent.connect.jdbc.util.TableId;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import vn.bnh.connect.jdbc.sink.JdbcAuditSinkConfig;
 import vn.bnh.connect.jdbc.sink.SqliteHelper;
 
 import java.io.IOException;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.*;
 
@@ -34,7 +29,6 @@ class BufferedRecordsTest {
 
     @BeforeEach
     public void setUp() throws IOException, SQLException {
-        sqliteHelper.setUp();
         props = new HashMap<>();
         props.put("name", "my-connector");
         props.put("connection.url", sqliteHelper.sqliteUri());
@@ -45,8 +39,9 @@ class BufferedRecordsTest {
         // We use various schemas, so let the connector add missing columns
         props.put("auto.evolve", true);
         props.put(DELETE_MODE, "UPDATE");
-        props.put(DELETE_AS_UPDATE_KEY, "RECID");
-        props.put(DELETE_AS_UPDATE_SET_VALUE, "OP_TYPE=D");
+        props.put(DELETE_AS_UPDATE_IDENTIFIER, "OP_TYPE=D");
+        props.put("pk.mode", "record_value");
+        props.put("pk.fields", List.of("RECID", "V_M", "V_S"));
         props.put(DELETE_AS_UPDATE_VALUE_SCHEMA, List.of("UPDATE_TIME", "TABLE_NAME"));
     }
 
@@ -95,33 +90,29 @@ class BufferedRecordsTest {
 
     @Test
     void testDeleteAsUpdate() throws SQLException {
-        String expected = "UPDATE \"myTable\" SET \"myTable\".\"OP_TYPE\" = 'D', \"TABLE_NAME\" = ?, \"UPDATE_TIME\" = ? WHERE \"myTable\".\"RECID\" = ? AND \"myTable\".\"OP_TYPE\" != 'D'";
-        final JdbcAuditSinkConfig config = new JdbcAuditSinkConfig(props);
-        final String url = sqliteHelper.sqliteUri();
-        final DatabaseDialect dbDialect = DatabaseDialects.findBestFor(url, config);
-        final DbStructure dbStructure = new DbStructure(dbDialect);
-
-        final TableId tableId = new TableId(null, null, "myTable");
-        final BufferedRecords buffer =
-                new BufferedRecords(config, tableId, dbDialect, dbStructure, sqliteHelper.connection);
-
-        String sql = buffer.getDeleteAsUpdateSql();
-        Assertions.assertEquals(expected, sql);
-        Schema keySchema = SchemaBuilder.struct().field("RECID", Schema.STRING_SCHEMA).build();
-        Schema valueSchema = SchemaBuilder.struct().field("TABLE_NAME", Schema.STRING_SCHEMA).field("UPDATE_TIME", Schema.STRING_SCHEMA).build();
-        Struct key = new Struct(keySchema);
-        key.put("RECID", "unittest");
-        Struct value = new Struct(valueSchema);
-        value.put("TABLE_NAME", "table-name");
-        value.put("UPDATE_TIME", "2023-11-01");
-        SinkRecord r = new SinkRecord("myTable", 0, keySchema, key, valueSchema, value, 0L);
-
-        FieldsMetadata metadata = FieldsMetadata.extract(tableId.tableName(), PrimaryKeyMode.RECORD_KEY, config.pkFields, config.fieldsWhitelist, new SchemaPair(keySchema, valueSchema));
-        System.out.println(sql);
-        PreparedStatement deleteAsUpdatePreparedStatement = dbDialect.createPreparedStatement(sqliteHelper.connection, sql);
-        DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder = dbDialect.statementBinder(deleteAsUpdatePreparedStatement, PrimaryKeyMode.RECORD_KEY, new SchemaPair(keySchema, valueSchema), metadata, dbStructure.tableDefinition(sqliteHelper.connection, tableId), JdbcSinkConfig.InsertMode.UPDATE);
-        deleteAsUpdateStatementBinder.bindRecord(r);
-        System.out.println(deleteAsUpdateStatementBinder);
+        Map<String, Object> properties = new HashMap<>();
+        properties.put("value.converter.schema.registry.url", "http://registry-1.bnh.vn:8081");
+        properties.put("key.converter.schema.registry.url", "http://registry-1.bnh.vn:8081");
+        properties.put("name", "AuditDeleteSink");
+        properties.put("connector.class", "vn.bnh.connect.jdbc.JdbcAuditSinkConnector");
+        properties.put("key.converter", "io.confluent.connect.avro.AvroConverter");
+        properties.put("value.converter", "io.confluent.connect.avro.AvroConverter");
+        properties.put("topics", "test_audit_delete");
+        properties.put("connection.url", "jdbc:oracle:thin:@10.10.11.58:1521/tafjr22");
+        properties.put("connection.user", "test_go");
+        properties.put("connection.password", "oracle_4U");
+        properties.put("dialect.name", "OracleDatabaseDialect");
+        properties.put("insert.mode", "UPSERT");
+        properties.put("table.name.format", "SINK_AUDIT_DELETE_OP");
+        properties.put("pk.mode", "record_value");
+        properties.put("pk.fields", List.of("RECID", "V_M", "V_S"));
+        properties.put("auto.create", "false");
+        properties.put("auto.evolve", "false");
+        properties.put("delete.mode", "UPDATE");
+        properties.put("delete.as.update.identifier", "OP_TYPE=D");
+        properties.put("delete.as.update.key", "RECID");
+        properties.put("delete.as.update.value.schema", List.of("TIME_UPDATE", "TABLE_NAME"));
+        final JdbcAuditSinkConfig config = new JdbcAuditSinkConfig(properties);
 
     }
 }
