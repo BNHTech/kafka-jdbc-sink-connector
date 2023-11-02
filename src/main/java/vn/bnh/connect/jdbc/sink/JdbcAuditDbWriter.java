@@ -86,8 +86,8 @@ public class JdbcAuditDbWriter {
         } catch (SQLException | TableAlterOrCreateException e) {
             try {
                 connection.rollback();
-            } catch (SQLException sqle) {
-                e.addSuppressed(sqle);
+            } catch (SQLException sqlE) {
+                e.addSuppressed(sqlE);
             } finally {
                 throw e;
             }

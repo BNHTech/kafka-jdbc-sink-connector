@@ -31,7 +31,12 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA = "delete.as.update.value.schema";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY = "Delete as UPDATE value schema fields";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DOC = "Message's fields to retain (other than field specified in delete.as.update.identifier) when building UPDATE statement for DELETE as UPDATE mode";
-    public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF.define(
+
+    public static final String AUDIT_TS_FIELD = "audit.timestamp.column";
+    public static final String AUDIT_TS_FIELD_DISPLAY = "Audit timestamp column";
+    public static final String AUDIT_TS_FIELD_DOC = "Database column name to INSERT/UPDATE current time when executing SQL statement";
+    public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF
+            .define(
                     DELETE_MODE,
                     ConfigDef.Type.STRING,
                     "DELETE",
@@ -69,13 +74,22 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     GROUP,
                     4,
                     ConfigDef.Width.MEDIUM,
-                    DELETE_AS_UPDATE_KEY_DISPLAY);
+                    DELETE_AS_UPDATE_KEY_DISPLAY)
+            .define(AUDIT_TS_FIELD,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.MEDIUM,
+                    AUDIT_TS_FIELD_DOC,
+                    GROUP,
+                    5,
+                    ConfigDef.Width.MEDIUM,
+                    AUDIT_TS_FIELD_DISPLAY);
     public final DeleteMode deleteMode;
     public final String deleteAsUpdateColName;
     public final String deleteAsUpdateColValue;
     public final Set<String> deleteAsUpdateValueFields;
-
     public final String deleteAsUpdateKey;
+    public final String auditTsCol;
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
@@ -84,8 +98,9 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         deleteAsUpdateColName = deleteAsUpdateValue[0];
         deleteAsUpdateColValue = deleteAsUpdateValue[1];
         deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
-        this.deleteAsUpdateValueFields = new HashSet(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
+        this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
         this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
+        auditTsCol = getString(AUDIT_TS_FIELD);
     }
 
     private static class EnumValidator implements ConfigDef.Validator {

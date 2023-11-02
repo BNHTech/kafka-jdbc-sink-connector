@@ -74,16 +74,16 @@ public class JdbcAuditSinkTask extends SinkTask {
         );
         try {
             writer.write(records);
-        } catch (TableAlterOrCreateException tace) {
+        } catch (TableAlterOrCreateException tacE) {
             if (reporter != null) {
                 unrollAndRetry(records);
             } else {
-                log.error(tace.toString());
-                throw tace;
+                log.error(tacE.toString());
+                throw tacE;
             }
-        } catch (SQLException sqle) {
+        } catch (SQLException sqlE) {
             SQLException trimmedException = shouldTrimSensitiveLogs
-                    ? LogUtil.trimSensitiveData(sqle) : sqle;
+                    ? LogUtil.trimSensitiveData(sqlE) : sqlE;
             log.warn(
                     "Write of {} records failed, remainingRetries={}",
                     records.size(),
@@ -91,10 +91,10 @@ public class JdbcAuditSinkTask extends SinkTask {
                     trimmedException
             );
             int totalExceptions = 0;
-            for (Throwable e : sqle) {
+            for (Throwable e : sqlE) {
                 totalExceptions++;
             }
-            SQLException sqlAllMessagesException = getAllMessagesException(sqle);
+            SQLException sqlAllMessagesException = getAllMessagesException(sqlE);
             if (remainingRetries > 0) {
                 writer.closeQuietly();
                 initWriter();
@@ -142,13 +142,13 @@ public class JdbcAuditSinkTask extends SinkTask {
     }
 
     private SQLException getAllMessagesException(SQLException sqle) {
-        String sqleAllMessages = "Exception chain:" + System.lineSeparator();
+        StringBuilder sqleAllMessages = new StringBuilder("Exception chain:" + System.lineSeparator());
         SQLException trimmedException = shouldTrimSensitiveLogs
                 ? LogUtil.trimSensitiveData(sqle) : sqle;
         for (Throwable e : trimmedException) {
-            sqleAllMessages += e + System.lineSeparator();
+            sqleAllMessages.append(e).append(System.lineSeparator());
         }
-        SQLException sqlAllMessagesException = new SQLException(sqleAllMessages);
+        SQLException sqlAllMessagesException = new SQLException(sqleAllMessages.toString());
         sqlAllMessagesException.setNextException(trimmedException);
         return sqlAllMessagesException;
     }
