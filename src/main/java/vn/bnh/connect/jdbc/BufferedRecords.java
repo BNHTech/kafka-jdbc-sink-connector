@@ -43,6 +43,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
     private RecordValidator recordValidator;
 
+    private static final String AUDIT_TS_VALUE = "SYSTIMESTAMP";
+
     public BufferedRecords(
             JdbcAuditSinkConfig config,
             TableId tableId,
@@ -182,7 +184,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 .append(", ");
 //        set audit timestamp
         expressionBuilder.append(config.auditTsCol)
-                .append(" = SYSDATE");
+                .append(" = ").append(AUDIT_TS_VALUE);
         if (!columns.isEmpty()) {
             expressionBuilder.append(", ");
         }
@@ -249,7 +251,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             if (!nonKeyColumns.isEmpty()) {
                 builder.append(",");
             }
-            builder.append(new ColumnId(this.tableId, config.auditTsCol)).append(" = SYSDATE");
+            builder.append(new ColumnId(this.tableId, config.auditTsCol)).append(" = ").append(AUDIT_TS_VALUE);
         }
         builder.append(" when not matched then insert(");
         builder.appendList().delimitedBy(",").of(nonKeyColumns, keyColumns);
@@ -258,8 +260,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         builder.append(new ColumnId(this.tableId, config.auditTsCol));
         builder.append(") values(");
         builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNamesWithPrefix("incoming.")).of(nonKeyColumns, keyColumns);
-//        audit ts - SYSDATE
-        builder.append(",").append("SYSDATE");
+//        audit ts
+        builder.append(",").append(AUDIT_TS_VALUE);
         builder.append(")");
         return builder.toString();
     }

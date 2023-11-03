@@ -1,8 +1,6 @@
 
 9
 	derby.log,a/7/a7c30820953d3058ae34d7c1d585aa37740d72d5
-
-Osrc/test/java/io/confluent/connect/jdbc/dialect/GenericDatabaseDialectTest.java,4/a/4a378ba67560e28f59d0723b624366716c281478
 j
 :src/test/java/vn/bnh/connect/jdbc/BufferedRecordsTest.java,0/7/07ddd7a6bc1beafab0bf1f76ef2097f41e41b10e
 m
