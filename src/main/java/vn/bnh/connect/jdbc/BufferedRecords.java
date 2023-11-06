@@ -59,7 +59,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         this.dbStructure = dbStructure;
         this.connection = connection;
         this.isDeleteAsUpdate = config.deleteMode.equals(JdbcAuditSinkConfig.DeleteMode.UPDATE);
-        log.debug("DELETE as UPDATE mode: {}", this.isDeleteAsUpdate);
+        log.info("DELETE as UPDATE mode: {}", this.isDeleteAsUpdate);
         this.recordValidator = RecordValidator.create(config);
 
     }
@@ -69,6 +69,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         SchemaBuilder valueBuilder = SchemaBuilder.struct();
         config.deleteAsUpdateValueFields.forEach(field -> {
             Field f = sinkRecord.valueSchema().field(field);
+
+            if (f == null) {
+                log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
+                throw new RuntimeException(String.format("Field %s does not exists in message schema", field));
+            }
             log.debug("{} - {} - {}", f.name(), f.schema(), config.deleteAsUpdateValueFields);
             valueBuilder.field(field, f.schema());
         });
