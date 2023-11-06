@@ -69,7 +69,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         SchemaBuilder valueBuilder = SchemaBuilder.struct();
         config.deleteAsUpdateValueFields.forEach(field -> {
             Field f = sinkRecord.valueSchema().field(field);
-
             if (f == null) {
                 log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
                 throw new RuntimeException(String.format("Field %s does not exists in message schema", field));
@@ -178,7 +177,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     String getDeleteAsUpdateSql() {
         List<ColumnId> columns = config.deleteAsUpdateValueFields.stream()
-                .filter(f -> !f.equals(config.deleteAsUpdateKey))
                 .map(f -> new ColumnId(this.tableId, f))
                 .collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
@@ -214,7 +212,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private Collection<ColumnId> asColumns(Collection<String> names) {
-        return names.stream().map(name -> new ColumnId(this.tableId, name)).collect(Collectors.toList());
+        return names.stream()
+                .filter(name -> !name.equalsIgnoreCase(config.auditTsCol))
+                .map(name -> new ColumnId(this.tableId, name))
+                .collect(Collectors.toList());
     }
 
     private void executeUpdates() throws SQLException {
@@ -238,9 +239,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private String buildUpsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
-        ExpressionBuilder.Transform<ColumnId> transform = (builderx, col) -> {
-            builderx.append(table).append(".").appendColumnName(col.name()).append("=incoming.").appendColumnName(col.name());
-        };
+        ExpressionBuilder.Transform<ColumnId> transform = (builder, col) -> builder.append(table).append(".").appendColumnName(col.name()).append("=incoming.").appendColumnName(col.name());
         ExpressionBuilder builder = this.dbDialect.expressionBuilder();
         builder.append("merge into ");
         builder.append(table);
