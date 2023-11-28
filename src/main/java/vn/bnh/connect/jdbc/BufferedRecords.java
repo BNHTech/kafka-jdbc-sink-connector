@@ -82,7 +82,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
         log.debug("Begin constructing DELETE as UPDATE SQL statement");
         String deleteAsUpdateSql = this.getDeleteAsUpdateSql();
-        log.info("DELETE as UPDATE SQL statement: {}", deleteAsUpdateSql);
+        log.debug("DELETE as UPDATE SQL statement: {}", deleteAsUpdateSql);
         log.debug("End constructing DELETE as UPDATE SQL statement");
 
         log.debug("Begin constructing DELETE as UPDATE prepared statement");
@@ -161,7 +161,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.config.pkMode, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
             this.dbStructure.createOrAmendIfNecessary(this.config, this.connection, this.tableId, this.fieldsMetadata);
             String insertSql = this.getInsertSql();
-            log.info("{} sql: {} meta: {}", this.config.insertMode, insertSql, this.fieldsMetadata);
+            log.debug("{} sql: {} meta: {}", this.config.insertMode, insertSql, this.fieldsMetadata);
             this.close();
             this.updatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, insertSql);
             this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, this.config.pkMode, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
