@@ -14,7 +14,6 @@ import org.apache.kafka.connect.data.Field;
 import org.apache.kafka.connect.data.Schema;
 import org.apache.kafka.connect.data.SchemaBuilder;
 import org.apache.kafka.connect.data.Struct;
-import org.apache.kafka.connect.errors.ConnectException;
 import org.apache.kafka.connect.sink.SinkRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -200,13 +199,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 .append(new ColumnId(this.tableId, config.deleteAsUpdateColName))
                 .append(" != ")
                 .appendStringQuoted(config.deleteAsUpdateColValue);
-
         return expressionBuilder.toString();
     }
 
     private String getInsertSql() {
         if (!this.config.insertMode.equals(JdbcSinkConfig.InsertMode.UPSERT)) {
-            throw new ConnectException("AuditSinkConnector only supports UPSERT mode");
+            return buildInsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
         }
         return buildUpsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
     }
@@ -236,6 +234,18 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                         "Execution failed for part of the batch update", batchStatus);
             }
         }
+    }
+
+    private String buildInsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
+        ExpressionBuilder builder = this.dbDialect.expressionBuilder();
+        builder.append("INSERT INTO ");
+        builder.append(table);
+        builder.append("(");
+        builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNames()).of(keyColumns, nonKeyColumns);
+        builder.append(") VALUES(");
+        builder.appendMultiple(",", "?", keyColumns.size() + nonKeyColumns.size());
+        builder.append(")");
+        return builder.toString();
     }
 
     private String buildUpsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {

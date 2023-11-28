@@ -3,10 +3,13 @@ package vn.bnh.connect.jdbc.sink;
 import io.confluent.connect.jdbc.sink.JdbcSinkConfig;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
 public class JdbcAuditSinkConfig extends JdbcSinkConfig {
+    private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
 
     public enum DeleteMode {
         DELETE,
@@ -29,7 +32,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     + "- DELETE: actually delete row(s) in database\n"
                     + "- UPDATE: update a column to specific value";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA = "delete.as.update.value.schema";
-    public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY = "Delete as UPDATE value schema fields";
+    public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY = "Delete as UPDATE fields to retain";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DOC = "Message's fields to retain (other than field specified in delete.as.update.identifier) when building UPDATE statement for DELETE as UPDATE mode";
 
     public static final String AUDIT_TS_FIELD = "audit.timestamp.column";
@@ -94,10 +97,13 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
         deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
+        log.info("DELETE OP Mode: {}", deleteMode);
         String[] deleteAsUpdateValue = getString(DELETE_AS_UPDATE_IDENTIFIER).split("=");
         deleteAsUpdateColName = deleteAsUpdateValue[0];
         deleteAsUpdateColValue = deleteAsUpdateValue[1];
         deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
+        log.info("DELETE OP Key: {}", deleteAsUpdateKey);
+        log.info("DELETE OP fields to retains: {}", DELETE_AS_UPDATE_VALUE_SCHEMA);
         this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
         this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
         auditTsCol = getString(AUDIT_TS_FIELD);
