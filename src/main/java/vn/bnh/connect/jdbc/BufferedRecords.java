@@ -42,7 +42,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private PreparedStatement deleteAsUpdatePreparedStatement;
     private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
     private RecordValidator recordValidator;
-    private final JdbcSinkConfig.PrimaryKeyMode pkMode = JdbcSinkConfig.PrimaryKeyMode.RECORD_VALUE;
+    private static final JdbcSinkConfig.PrimaryKeyMode PK_MODE = JdbcSinkConfig.PrimaryKeyMode.RECORD_VALUE;
 
     public BufferedRecords(JdbcAuditSinkConfig config, TableId tableId, DatabaseDialect dbDialect, DbStructure dbStructure, Connection connection) {
         super(config, tableId, dbDialect, dbStructure, connection);
@@ -69,10 +69,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         });
         this.deleteOpValueSchema = valueBuilder.build();
         String deleteAsUpdateSql = this.getDeleteAsUpdateSql();
+        log.debug("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
-        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.pkMode, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
-        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, this.pkMode, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.PK_MODE, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
+        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, this.PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
 
     }
 
@@ -107,9 +108,13 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 updateStatementBinder.bindRecord(sinkRecord);
             }
         }
-        executeDeletes();
-        executeUpdates();
-
+        if (config.keyColsCount > 1) {
+            executeDeletes();
+            executeUpdates();
+        } else {
+            executeUpdates();
+            executeDeletes();
+        }
         final List<SinkRecord> flushedRecords = records;
         records = new ArrayList<>();
         return flushedRecords;
@@ -139,12 +144,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         if (schemaChanged || this.updateStatementBinder == null) {
             flushed.addAll(this.flush());
             SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), sinkRecord.valueSchema());
-            this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.pkMode, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
+            this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.PK_MODE, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
             this.dbStructure.createOrAmendIfNecessary(this.config, this.connection, this.tableId, this.fieldsMetadata);
             String insertSql = this.getInsertSql();
             this.close();
             this.updatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, insertSql);
-            this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, this.pkMode, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
+            this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, this.PK_MODE, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
         }
 
         this.records.add(sinkRecord);
@@ -156,9 +161,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     String getDeleteAsUpdateSql() {
-        List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
+        List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().filter(f -> !f.equalsIgnoreCase(config.deleteAsUpdateKey)).map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
-        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ").append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue).append(", ");
+        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
+                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue).append(", ");
 //        set audit timestamp
         expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
         if (!columns.isEmpty()) {
@@ -172,9 +178,9 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private String getInsertSql() {
-        if (!this.config.insertMode.equals(JdbcSinkConfig.InsertMode.UPSERT)) {
-            return buildInsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
-        }
+//        if (!this.config.insertMode.equals(JdbcSinkConfig.InsertMode.UPSERT)) {
+//            return buildInsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
+//        }
         return buildUpsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
     }
 
@@ -200,17 +206,17 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         }
     }
 
-    private String buildInsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
-        ExpressionBuilder builder = this.dbDialect.expressionBuilder();
-        builder.append("INSERT INTO ");
-        builder.append(table);
-        builder.append("(");
-        builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNames()).of(keyColumns, nonKeyColumns);
-        builder.append(") VALUES(");
-        builder.appendMultiple(",", "?", keyColumns.size() + nonKeyColumns.size());
-        builder.append(")");
-        return builder.toString();
-    }
+//    private String buildInsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
+//        ExpressionBuilder builder = this.dbDialect.expressionBuilder();
+//        builder.append("INSERT INTO ");
+//        builder.append(table);
+//        builder.append("(");
+//        builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNames()).of(keyColumns, nonKeyColumns);
+//        builder.append(") VALUES(");
+//        builder.appendMultiple(",", "?", keyColumns.size() + nonKeyColumns.size());
+//        builder.append(")");
+//        return builder.toString();
+//    }
 
     private String buildUpsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
         ExpressionBuilder.Transform<ColumnId> transform = (builder, col) -> builder.append(table).append(".").appendColumnName(col.name()).append("=incoming.").appendColumnName(col.name());
