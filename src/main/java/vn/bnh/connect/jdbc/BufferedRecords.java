@@ -24,25 +24,24 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedRecords {
-    private final JdbcAuditSinkConfig config;
-    private Schema deleteOpValueSchema = null;
-    private final boolean isDeleteAsUpdate;
     private static final Logger log = LoggerFactory.getLogger(BufferedRecords.class);
+    private static final String AUDIT_TS_VALUE = "SYSTIMESTAMP";
+    final Connection connection;
+    private final JdbcAuditSinkConfig config;
+    private final boolean isDeleteAsUpdate;
     private final TableId tableId;
     private final DatabaseDialect dbDialect;
     private final DbStructure dbStructure;
-    final Connection connection;
+    FieldsMetadata fieldsMetadata;
+    private Schema deleteOpValueSchema = null;
     private List<SinkRecord> records = new ArrayList<>();
     private Schema keySchema;
     private Schema valueSchema;
-    FieldsMetadata fieldsMetadata;
     private PreparedStatement updatePreparedStatement;
     private DatabaseDialect.StatementBinder updateStatementBinder;
     private PreparedStatement deleteAsUpdatePreparedStatement;
     private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
     private RecordValidator recordValidator;
-
-    private static final String AUDIT_TS_VALUE = "SYSTIMESTAMP";
 
     public BufferedRecords(
             JdbcAuditSinkConfig config,
@@ -64,7 +63,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private void initDeleteAsUpdateSchema(SinkRecord sinkRecord) throws SQLException {
-        log.debug("Begin constructing DELETE as UPDATE value schema");
         SchemaBuilder valueBuilder = SchemaBuilder.struct();
         config.deleteAsUpdateValueFields.forEach(field -> {
             Field f = sinkRecord.valueSchema().field(field);
@@ -72,28 +70,15 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
                 throw new RuntimeException(String.format("Field %s does not exists in message schema", field));
             }
-            log.debug("{} - {} - {}", f.name(), f.schema(), config.deleteAsUpdateValueFields);
             valueBuilder.field(field, f.schema());
         });
         this.deleteOpValueSchema = valueBuilder.build();
-        log.debug("DELETE as UPDATE value schema: {}", this.deleteOpValueSchema);
-        log.debug("End constructing DELETE as UPDATE value schema");
-
-        log.debug("Begin constructing DELETE as UPDATE SQL statement");
         String deleteAsUpdateSql = this.getDeleteAsUpdateSql();
-        log.debug("DELETE as UPDATE SQL statement: {}", deleteAsUpdateSql);
-        log.debug("End constructing DELETE as UPDATE SQL statement");
-
-        log.debug("Begin constructing DELETE as UPDATE prepared statement");
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
-        log.debug("End constructing DELETE as UPDATE prepared statement");
-
-        log.debug("Begin constructing DELETE as UPDATE statement binder");
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
         FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.config.pkMode, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
 
         this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, this.config.pkMode, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
-        log.debug("End constructing DELETE as UPDATE statement binder");
 
     }
 
@@ -120,8 +105,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         for (SinkRecord sinkRecord : records) {
             if (isDeleteAsUpdate && ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName).equals(config.deleteAsUpdateColValue)) {
                 sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
+                log.debug("creating DELETE statement for key: {}", sinkRecord.key());
                 deleteAsUpdateStatementBinder.bindRecord(sinkRecord);
             } else {
+                log.debug("creating UPSERT statement for key: {}", sinkRecord.key());
                 updateStatementBinder.bindRecord(sinkRecord);
             }
         }
@@ -160,7 +147,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.config.pkMode, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
             this.dbStructure.createOrAmendIfNecessary(this.config, this.connection, this.tableId, this.fieldsMetadata);
             String insertSql = this.getInsertSql();
-            log.debug("{} sql: {} meta: {}", this.config.insertMode, insertSql, this.fieldsMetadata);
             this.close();
             this.updatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, insertSql);
             this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, this.config.pkMode, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
@@ -267,6 +253,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             }
             builder.append(new ColumnId(this.tableId, config.auditTsCol)).append(" = ").append(AUDIT_TS_VALUE);
         }
+//        builder.append(" where incoming.")
+//                .appendColumnName(config.scnCol).append(" > ").append(new ColumnId(this.tableId, config.scnCol));
         builder.append(" when not matched then insert(");
         builder.appendList().delimitedBy(",").of(nonKeyColumns, keyColumns);
 //        INSERT - audit timestamp

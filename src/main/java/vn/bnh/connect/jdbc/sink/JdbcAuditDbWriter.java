@@ -34,11 +34,10 @@ import java.util.Map;
 
 public class JdbcAuditDbWriter {
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditDbWriter.class);
-
+    final CachedConnectionProvider cachedConnectionProvider;
     private final JdbcAuditSinkConfig config;
     private final DatabaseDialect dbDialect;
     private final DbStructure dbStructure;
-    final CachedConnectionProvider cachedConnectionProvider;
 
     JdbcAuditDbWriter(final JdbcAuditSinkConfig config, DatabaseDialect dbDialect, DbStructure dbStructure) {
         this.config = config;

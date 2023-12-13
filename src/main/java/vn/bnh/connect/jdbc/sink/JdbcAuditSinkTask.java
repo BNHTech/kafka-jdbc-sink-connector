@@ -23,14 +23,12 @@ import java.util.Map;
 
 public class JdbcAuditSinkTask extends SinkTask {
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkTask.class);
-    private JdbcAuditDbWriter writer;
-
     ErrantRecordReporter reporter;
     DatabaseDialect dialect;
     JdbcAuditSinkConfig config;
     int remainingRetries;
-
     boolean shouldTrimSensitiveLogs;
+    private JdbcAuditDbWriter writer;
 
     @Override
     public void start(final Map<String, String> props) {
@@ -68,7 +66,7 @@ public class JdbcAuditSinkTask extends SinkTask {
         final SinkRecord first = records.iterator().next();
         final int recordsCount = records.size();
         log.debug(
-                "Received {} records. First record kafka coordinates:({}-{}-{}). Writing them to the "
+                "Received {} records. First record kafka coordinates:(topic: {} partition: {} offset:{}). Writing them to the "
                         + "database...",
                 recordsCount, first.topic(), first.kafkaPartition(), first.kafkaOffset()
         );

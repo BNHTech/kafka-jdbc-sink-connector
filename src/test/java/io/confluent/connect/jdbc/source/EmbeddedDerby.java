@@ -61,6 +61,26 @@ public class EmbeddedDerby {
         connect();
     }
 
+    private static String quoteCaseSensitive(String name) {
+        return "\"" + name + "\"";
+    }
+
+    private static String formatLiteral(Object value) throws SQLException {
+        if (value == null) {
+            return "NULL";
+        } else if (value instanceof CharSequence) {
+            return "'" + value + "'";
+        } else if (value instanceof Blob) {
+            Blob blob = ((Blob) value);
+            byte[] blobData = blob.getBytes(1, (int) blob.length());
+            return "CAST(X'" + BytesUtil.toHex(blobData) + "' AS BLOB)";
+        } else if (value instanceof byte[]) {
+            return "X'" + BytesUtil.toHex((byte[]) value) + "'";
+        } else {
+            return value.toString();
+        }
+    }
+
     public void connect() {
         try {
             conn = DriverManager.getConnection(getUrl());
@@ -284,27 +304,6 @@ public class EmbeddedDerby {
     ) throws SQLException {
         delete(table, where.toString());
     }
-
-    private static String quoteCaseSensitive(String name) {
-        return "\"" + name + "\"";
-    }
-
-    private static String formatLiteral(Object value) throws SQLException {
-        if (value == null) {
-            return "NULL";
-        } else if (value instanceof CharSequence) {
-            return "'" + value + "'";
-        } else if (value instanceof Blob) {
-            Blob blob = ((Blob) value);
-            byte[] blobData = blob.getBytes(1, (int) blob.length());
-            return "CAST(X'" + BytesUtil.toHex(blobData) + "' AS BLOB)";
-        } else if (value instanceof byte[]) {
-            return "X'" + BytesUtil.toHex((byte[]) value) + "'";
-        } else {
-            return value.toString();
-        }
-    }
-
 
     public static class CaseSensitive {
 

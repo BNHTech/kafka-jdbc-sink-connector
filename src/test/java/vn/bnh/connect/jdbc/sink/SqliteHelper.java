@@ -19,11 +19,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
+import java.sql.*;
 
 public final class SqliteHelper {
 
@@ -35,12 +31,7 @@ public final class SqliteHelper {
         }
     }
 
-    public interface ResultSetReadCallback {
-        void read(final ResultSet rs) throws SQLException;
-    }
-
     public final Path dbPath;
-
     public Connection connection;
 
     public SqliteHelper(String testId) {
@@ -96,5 +87,9 @@ public final class SqliteHelper {
             stmt.executeUpdate(sql);
             connection.commit();
         }
+    }
+
+    public interface ResultSetReadCallback {
+        void read(final ResultSet rs) throws SQLException;
     }
 }
