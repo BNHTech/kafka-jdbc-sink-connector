@@ -41,10 +41,16 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private DatabaseDialect.StatementBinder updateStatementBinder;
     private PreparedStatement deleteAsUpdatePreparedStatement;
     private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
-    private RecordValidator recordValidator;
+    private final RecordValidator recordValidator;
     private static final JdbcSinkConfig.PrimaryKeyMode PK_MODE = JdbcSinkConfig.PrimaryKeyMode.RECORD_VALUE;
 
-    public BufferedRecords(JdbcAuditSinkConfig config, TableId tableId, DatabaseDialect dbDialect, DbStructure dbStructure, Connection connection) {
+    public BufferedRecords(
+            JdbcAuditSinkConfig config,
+            TableId tableId,
+            DatabaseDialect dbDialect,
+            DbStructure dbStructure,
+            Connection connection
+    ) {
         super(config, tableId, dbDialect, dbStructure, connection);
         this.config = config;
         this.tableId = tableId;
@@ -72,8 +78,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.debug("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
-        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.PK_MODE, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
-        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, this.PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
+        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
 
     }
 
@@ -92,14 +98,29 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     @Override
     public List<SinkRecord> flush() throws SQLException {
-
         if (records.isEmpty()) {
             log.debug("Records is empty");
             return new ArrayList<>();
         }
+        String currentOpType = null;
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
-            if (isDeleteAsUpdate && ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName).equals(config.deleteAsUpdateColValue)) {
+            String recordOpType = ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName);
+            if (currentOpType == null) {
+                currentOpType = recordOpType;
+            }
+            if (!currentOpType.equalsIgnoreCase(config.deleteAsUpdateColValue)) {
+                log.debug("Trigger batch execution on OP_TYPE changes");
+                if (currentOpType.equals(config.deleteAsUpdateColValue)) {
+                    // execute all batched UPSERT
+                    log.debug("Execute batched UPSERT statements");
+                    executeUpdates();
+                } else {
+                    log.debug("Execute batched DELETE statements");
+                    executeDeletes();
+                }
+            }
+            if (isDeleteAsUpdate && recordOpType.equals(config.deleteAsUpdateColValue)) {
                 sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
                 log.debug("creating DELETE statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.deleteAsUpdateKey));
                 deleteAsUpdateStatementBinder.bindRecord(sinkRecord);
@@ -108,18 +129,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 updateStatementBinder.bindRecord(sinkRecord);
             }
         }
-        if (config.keyColsCount > 1) {
-            executeDeletes();
-            executeUpdates();
-        } else {
-            executeUpdates();
-            executeDeletes();
-        }
+        executeDeletes();
+        executeUpdates();
         final List<SinkRecord> flushedRecords = records;
         records = new ArrayList<>();
         return flushedRecords;
     }
-
 
     @Override
     public List<SinkRecord> add(SinkRecord sinkRecord) throws SQLException, TableAlterOrCreateException {
@@ -144,12 +159,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         if (schemaChanged || this.updateStatementBinder == null) {
             flushed.addAll(this.flush());
             SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), sinkRecord.valueSchema());
-            this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), this.PK_MODE, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
+            this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
             this.dbStructure.createOrAmendIfNecessary(this.config, this.connection, this.tableId, this.fieldsMetadata);
             String insertSql = this.getInsertSql();
             this.close();
             this.updatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, insertSql);
-            this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, this.PK_MODE, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
+            this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, PK_MODE, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
         }
 
         this.records.add(sinkRecord);
@@ -163,9 +178,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     String getDeleteAsUpdateSql() {
         List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().filter(f -> !f.equalsIgnoreCase(config.deleteAsUpdateKey)).map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
-        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
-                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue).append(", ");
-//        set audit timestamp
+        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ").append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue).append(", ");
+        // set audit timestamp
         expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
         if (!columns.isEmpty()) {
             expressionBuilder.append(", ");
@@ -178,9 +192,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private String getInsertSql() {
-//        if (!this.config.insertMode.equals(JdbcSinkConfig.InsertMode.UPSERT)) {
-//            return buildInsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
-//        }
         return buildUpsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
     }
 
@@ -206,19 +217,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         }
     }
 
-//    private String buildInsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
-//        ExpressionBuilder builder = this.dbDialect.expressionBuilder();
-//        builder.append("INSERT INTO ");
-//        builder.append(table);
-//        builder.append("(");
-//        builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNames()).of(keyColumns, nonKeyColumns);
-//        builder.append(") VALUES(");
-//        builder.appendMultiple(",", "?", keyColumns.size() + nonKeyColumns.size());
-//        builder.append(")");
-//        return builder.toString();
-//    }
 
-    private String buildUpsertQueryStatement(TableId table, Collection<ColumnId> keyColumns, Collection<ColumnId> nonKeyColumns) {
+    private String buildUpsertQueryStatement(
+            TableId table,
+            Collection<ColumnId> keyColumns,
+            Collection<ColumnId> nonKeyColumns
+    ) {
         ExpressionBuilder.Transform<ColumnId> transform = (builder, col) -> builder.append(table).append(".").appendColumnName(col.name()).append("=incoming.").appendColumnName(col.name());
         ExpressionBuilder builder = this.dbDialect.expressionBuilder();
         builder.append("merge into ");
@@ -231,7 +235,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         if (nonKeyColumns != null && !nonKeyColumns.isEmpty()) {
             builder.append(" when matched then update set ");
             builder.appendList().delimitedBy(",").transformedBy(transform).of(nonKeyColumns);
-//          UPDATE -   audit timestamp
+            // UPDATE - audit timestamp
             if (!nonKeyColumns.isEmpty()) {
                 builder.append(",");
             }
@@ -239,12 +243,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         }
         builder.append(" when not matched then insert(");
         builder.appendList().delimitedBy(",").of(nonKeyColumns, keyColumns);
-//        INSERT - audit timestamp
+        // INSERT - audit timestamp
         builder.append(",");
         builder.append(new ColumnId(this.tableId, config.auditTsCol));
         builder.append(") values(");
         builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNamesWithPrefix("incoming.")).of(nonKeyColumns, keyColumns);
-//        audit ts
+        // audit ts
         builder.append(",").append(AUDIT_TS_VALUE);
         builder.append(")");
         return builder.toString();
