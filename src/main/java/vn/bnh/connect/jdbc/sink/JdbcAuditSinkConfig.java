@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String GROUP = "Audits";
@@ -40,7 +41,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     ConfigDef.Width.SHORT,
                     DELETE_MODE_DISPLAY)
             .define(DELETE_AS_UPDATE_IDENTIFIER,
-                    ConfigDef.Type.STRING,
+                    ConfigDef.Type.LIST,
                     null,
                     ConfigDef.Importance.LOW,
                     DELETE_AS_UPDATE_IDENTIFIER_DOC,
@@ -92,15 +93,17 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public final String deleteAsUpdateKey;
     public final String auditTsCol;
     public final String scnCol;
-
+    public final List<String[]> deleteAsUpdateConditions;
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
         deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
         log.info("DELETE OP Mode: {}", deleteMode);
-        String[] deleteAsUpdateValue = getString(DELETE_AS_UPDATE_IDENTIFIER).split("=");
-        deleteAsUpdateColName = deleteAsUpdateValue[0];
-        deleteAsUpdateColValue = deleteAsUpdateValue[1];
+        deleteAsUpdateConditions = this.getList(DELETE_AS_UPDATE_IDENTIFIER).stream()
+                .map(x -> x.split("=")).collect(Collectors.toList());
+//        String[] deleteAsUpdateValue = getString(DELETE_AS_UPDATE_IDENTIFIER).split("=");
+        deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
+        deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
         deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
         log.info("DELETE OP Key: {}", deleteAsUpdateKey);
         log.info("DELETE OP fields to retains: {}", DELETE_AS_UPDATE_VALUE_SCHEMA);

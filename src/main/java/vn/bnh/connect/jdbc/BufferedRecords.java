@@ -193,8 +193,14 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.deleteAsUpdateKey)).append(" = ?");
-        expressionBuilder.append(" AND ")
-                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" != ").appendStringQuoted(config.deleteAsUpdateColValue);
+        expressionBuilder.append(" AND");
+        config.deleteAsUpdateConditions.forEach(cond -> {
+            expressionBuilder
+                    .append(" ")
+                    .append(new ColumnId(this.tableId, cond[0]))
+                    .append(" != ")
+                    .appendStringQuoted(cond[1]);
+        });
         return expressionBuilder.toString();
     }
 
