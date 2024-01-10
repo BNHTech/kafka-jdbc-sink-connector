@@ -13,7 +13,7 @@ pipeline {
     stages {
         stage('Build with Maven') {
             steps {
-                sh 'mvn clean package -DskipTests'
+                sh 'mvn clean package kafka-connect:kafka-connect -DskipTests'
             }
         }
         
@@ -21,7 +21,7 @@ pipeline {
             steps {
                 script {
                     def VERSION = sh(script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout', returnStdout: true).trim()
-                    def ASSET_PATH = "target/kafka-jdbc-sink-connector-${VERSION}.jar"
+                    def ASSET_PATH = "target/components/packages/BNHTech-kafka-jdbc-sink-connector-${VERSION}.zip"
 
                     withCredentials([string(credentialsId: 'vault-token', variable: 'VAULT_TOKEN')]) {
                         sh "python3 ${SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${ASSET_PATH} ${GIT_URL} ${GIT_COMMIT}"
