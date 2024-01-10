@@ -27,8 +27,63 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String AUDIT_TS_FIELD_DOC = "Database column name to INSERT/UPDATE current time when executing SQL statement";
     public static final String SCN_COL_FIELD = "audit.scn.column";
     public static final String SCN_COL_FIELD_DISPLAY = "Audit SCN column";
-    public static final String SCN_COL_FIELLD_DOC = "SCN column to check if data should be updated";
-    public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF.define(DELETE_MODE, ConfigDef.Type.STRING, "DELETE", EnumValidator.in(DeleteMode.values()), ConfigDef.Importance.MEDIUM, DELETE_MODE_DOC, GROUP, 1, ConfigDef.Width.SHORT, DELETE_MODE_DISPLAY).define(DELETE_AS_UPDATE_IDENTIFIER, ConfigDef.Type.STRING, null, ConfigDef.Importance.LOW, DELETE_AS_UPDATE_IDENTIFIER_DOC, GROUP, 2, ConfigDef.Width.MEDIUM, DELETE_AS_UPDATE_IDENTIFIER_DISPLAY).define(DELETE_AS_UPDATE_VALUE_SCHEMA, ConfigDef.Type.LIST, null, ConfigDef.Importance.LOW, DELETE_AS_UPDATE_VALUE_SCHEMA_DOC, GROUP, 3, ConfigDef.Width.MEDIUM, DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY).define(DELETE_AS_UPDATE_KEY, ConfigDef.Type.STRING, null, ConfigDef.Importance.LOW, DELETE_AS_UPDATE_KEY_DOC, GROUP, 4, ConfigDef.Width.MEDIUM, DELETE_AS_UPDATE_KEY_DISPLAY).define(AUDIT_TS_FIELD, ConfigDef.Type.STRING, null, ConfigDef.Importance.MEDIUM, AUDIT_TS_FIELD_DOC, GROUP, 5, ConfigDef.Width.MEDIUM, AUDIT_TS_FIELD_DISPLAY).define(SCN_COL_FIELD, ConfigDef.Type.STRING, null, ConfigDef.Importance.MEDIUM, SCN_COL_FIELLD_DOC, GROUP, 6, ConfigDef.Width.MEDIUM, SCN_COL_FIELD_DISPLAY);
+    public static final String SCN_COL_FIELD_DOC = "SCN column to check if data should be updated";
+    public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF
+            .define(DELETE_MODE,
+                    ConfigDef.Type.STRING,
+                    "NONE",
+                    EnumValidator.in(DeleteMode.values()),
+                    ConfigDef.Importance.MEDIUM,
+                    DELETE_MODE_DOC,
+                    GROUP,
+                    1,
+                    ConfigDef.Width.SHORT,
+                    DELETE_MODE_DISPLAY)
+            .define(DELETE_AS_UPDATE_IDENTIFIER,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.LOW,
+                    DELETE_AS_UPDATE_IDENTIFIER_DOC,
+                    GROUP,
+                    2,
+                    ConfigDef.Width.MEDIUM,
+                    DELETE_AS_UPDATE_IDENTIFIER_DISPLAY)
+            .define(DELETE_AS_UPDATE_VALUE_SCHEMA,
+                    ConfigDef.Type.LIST,
+                    null,
+                    ConfigDef.Importance.LOW,
+                    DELETE_AS_UPDATE_VALUE_SCHEMA_DOC,
+                    GROUP,
+                    3,
+                    ConfigDef.Width.MEDIUM,
+                    DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY)
+            .define(DELETE_AS_UPDATE_KEY,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.LOW,
+                    DELETE_AS_UPDATE_KEY_DOC,
+                    GROUP,
+                    4,
+                    ConfigDef.Width.MEDIUM,
+                    DELETE_AS_UPDATE_KEY_DISPLAY)
+            .define(AUDIT_TS_FIELD,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.MEDIUM,
+                    AUDIT_TS_FIELD_DOC,
+                    GROUP,
+                    5,
+                    ConfigDef.Width.MEDIUM,
+                    AUDIT_TS_FIELD_DISPLAY)
+            .define(SCN_COL_FIELD,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.MEDIUM,
+                    SCN_COL_FIELD_DOC,
+                    GROUP,
+                    6,
+                    ConfigDef.Width.MEDIUM,
+                    SCN_COL_FIELD_DISPLAY);
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
     public final DeleteMode deleteMode;
     public final String deleteAsUpdateColName;
@@ -37,7 +92,6 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public final String deleteAsUpdateKey;
     public final String auditTsCol;
     public final String scnCol;
-    public final PrimaryKeyMode pkMode = PrimaryKeyMode.RECORD_VALUE;
 
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
@@ -61,7 +115,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     }
 
     public enum DeleteMode {
-        DELETE, UPDATE
+        DELETE, UPDATE, NONE
     }
 
     private static class EnumValidator implements ConfigDef.Validator {

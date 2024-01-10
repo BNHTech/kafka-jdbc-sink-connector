@@ -106,6 +106,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
             String recordOpType = ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName);
+            if (config.deleteMode == JdbcAuditSinkConfig.DeleteMode.NONE && recordOpType.equalsIgnoreCase(config.deleteAsUpdateColValue)) {
+                log.debug("Skipping record with key '{}' due to DeleteMode.None", sinkRecord.key());
+                continue;
+            }
             if (currentOpType == null) {
                 currentOpType = recordOpType;
             }
@@ -178,7 +182,9 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     String getDeleteAsUpdateSql() {
         List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().filter(f -> !f.equalsIgnoreCase(config.deleteAsUpdateKey)).map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
-        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ").append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue).append(", ");
+        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
+                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue)
+                .append(", ");
         // set audit timestamp
         expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
         if (!columns.isEmpty()) {
@@ -187,7 +193,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.deleteAsUpdateKey)).append(" = ?");
-        expressionBuilder.append(" AND ").append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" != ").appendStringQuoted(config.deleteAsUpdateColValue);
+        expressionBuilder.append(" AND ")
+                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" != ").appendStringQuoted(config.deleteAsUpdateColValue);
         return expressionBuilder.toString();
     }
 
@@ -216,7 +223,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             }
         }
     }
-
 
     private String buildUpsertQueryStatement(
             TableId table,
