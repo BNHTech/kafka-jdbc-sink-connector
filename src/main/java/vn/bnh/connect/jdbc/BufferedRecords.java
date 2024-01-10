@@ -75,7 +75,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         });
         this.deleteOpValueSchema = valueBuilder.build();
         String deleteAsUpdateSql = this.getDeleteAsUpdateSql();
-        log.debug("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
+        log.trace("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
         FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
@@ -88,10 +88,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         Struct oldValue = (Struct) sinkRecord.value();
         Struct newValue = new Struct(deleteOpValueSchema);
         deleteOpValueSchema.fields().forEach(f -> {
-            log.debug("{}", f);
+            log.trace("{}", f);
             newValue.put(f, oldValue.get(f.name()));
         });
-        log.debug("UPDATE as DELETE record value: {}", newValue);
+        log.trace("UPDATE as DELETE record value: {}", newValue);
         return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), deleteOpValueSchema, newValue, sinkRecord.kafkaOffset());
 
     }
@@ -235,7 +235,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         builder.append(table);
         builder.append(" using (select ");
         builder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWithPrefix("? ")).of(keyColumns, nonKeyColumns);
-        builder.append(" FROM dual) incoming on(");
+        builder.append(" FROM dual) incoming on (");
         builder.appendList().delimitedBy(" and ").transformedBy(transform).of(keyColumns);
         builder.append(")");
         if (nonKeyColumns != null && !nonKeyColumns.isEmpty()) {
@@ -252,7 +252,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         // INSERT - audit timestamp
         builder.append(",");
         builder.append(new ColumnId(this.tableId, config.auditTsCol));
-        builder.append(") values(");
+        builder.append(") values (");
         builder.appendList().delimitedBy(",").transformedBy(ExpressionBuilder.columnNamesWithPrefix("incoming.")).of(nonKeyColumns, keyColumns);
         // audit ts
         builder.append(",").append(AUDIT_TS_VALUE);
