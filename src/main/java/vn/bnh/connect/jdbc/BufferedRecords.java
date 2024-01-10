@@ -222,6 +222,9 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private void executeDeletes() throws SQLException {
+        if (config.deleteMode == JdbcAuditSinkConfig.DeleteMode.NONE) {
+            return;
+        }
         int[] batchStatus = deleteAsUpdatePreparedStatement.executeBatch();
         for (int updateCount : batchStatus) {
             if (updateCount == Statement.EXECUTE_FAILED) {

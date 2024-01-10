@@ -101,7 +101,6 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         log.info("DELETE OP Mode: {}", deleteMode);
         deleteAsUpdateConditions = this.getList(DELETE_AS_UPDATE_IDENTIFIER).stream()
                 .map(x -> x.split("=")).collect(Collectors.toList());
-//        String[] deleteAsUpdateValue = getString(DELETE_AS_UPDATE_IDENTIFIER).split("=");
         deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
         deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
         deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
@@ -125,7 +124,10 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         private final List<String> canonicalValues;
         private final Set<String> validValues;
 
-        private EnumValidator(List<String> canonicalValues, Set<String> validValues) {
+        private EnumValidator(
+                List<String> canonicalValues,
+                Set<String> validValues
+        ) {
             this.canonicalValues = canonicalValues;
             this.validValues = validValues;
         }
@@ -142,7 +144,10 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         }
 
         @Override
-        public void ensureValid(String key, Object value) {
+        public void ensureValid(
+                String key,
+                Object value
+        ) {
             if (!validValues.contains(value)) {
                 throw new ConfigException(key, value, "Invalid enumerator");
             }
