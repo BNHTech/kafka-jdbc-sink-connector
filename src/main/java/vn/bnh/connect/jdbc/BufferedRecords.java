@@ -74,7 +74,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             valueBuilder.field(field, f.schema());
         });
         this.deleteOpValueSchema = valueBuilder.build();
-        String deleteAsUpdateSql = this.getDeleteAsUpdateSql();
+        String deleteAsUpdateSql = this.buildDeleteQueryStatement();
         log.trace("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
@@ -179,7 +179,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         return flushed;
     }
 
-    String getDeleteAsUpdateSql() {
+    String buildDeleteQueryStatement() {
         List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().filter(f -> !f.equalsIgnoreCase(config.deleteAsUpdateKey)).map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
         expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
@@ -194,13 +194,16 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.deleteAsUpdateKey)).append(" = ?");
         expressionBuilder.append(" AND");
-        config.deleteAsUpdateConditions.forEach(cond -> {
-            expressionBuilder
-                    .append(" ")
+        for (int i = 0; i < config.deleteAsUpdateConditions.size(); i++) {
+            String[] cond = config.deleteAsUpdateConditions.get(i);
+            if (i > 0) {
+                expressionBuilder.append(" OR");
+            }
+            expressionBuilder.append(" ")
                     .append(new ColumnId(this.tableId, cond[0]))
                     .append(" != ")
                     .appendStringQuoted(cond[1]);
-        });
+        }
         return expressionBuilder.toString();
     }
 
