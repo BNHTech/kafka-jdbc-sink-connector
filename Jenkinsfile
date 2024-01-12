@@ -22,9 +22,11 @@ pipeline {
                 script {
                     def VERSION = sh(script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout', returnStdout: true).trim()
                     def ASSET_PATH = "target/components/packages/BNHTech-kafka-jdbc-sink-connector-${VERSION}.zip"
+                    def ASSET_NAME = "BNHTech-kafka-jdbc-sink-connector-${VERSION}.zip"
+                    def GIT_LOG = sh(script: "git log", returnStdout: true).trim()
 
                     withCredentials([string(credentialsId: 'vault-token', variable: 'VAULT_TOKEN')]) {
-                        sh "python3 ${SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${ASSET_PATH} ${GIT_URL} ${GIT_COMMIT}"
+                        sh "python3 ${SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${ASSET_PATH} ${GIT_URL} ${GIT_COMMIT} ${ASSET_NAME} '${GIT_LOG}'"
                     }
                 }
             }
