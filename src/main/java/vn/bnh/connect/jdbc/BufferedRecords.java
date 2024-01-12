@@ -193,7 +193,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.deleteAsUpdateKey)).append(" = ?");
-        expressionBuilder.append(" AND");
+        expressionBuilder.append(" AND (");
         for (int i = 0; i < config.deleteAsUpdateConditions.size(); i++) {
             String[] cond = config.deleteAsUpdateConditions.get(i);
             if (i > 0) {
@@ -204,6 +204,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                     .append(" != ")
                     .appendStringQuoted(cond[1]);
         }
+        expressionBuilder.append(" )");
         return expressionBuilder.toString();
     }
 

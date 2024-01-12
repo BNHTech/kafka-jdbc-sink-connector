@@ -6,7 +6,7 @@
 
     <groupId>vn.bnh</groupId>
     <artifactId>kafka-jdbc-sink-connector</artifactId>
-    <version>1.7.10</version>
+    <version>1.7.11</version>
 
     <properties>
         <maven.compiler.source>11</maven.compiler.source>
