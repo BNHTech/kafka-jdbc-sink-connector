@@ -6,8 +6,10 @@ pipeline {
     }
 
     environment {
-        SCRIPT_PATH = "/opt/python/microsoft-graph-api/main.py"
+        BUILD_SCRIPT_PATH = "/opt/python/microsoft-graph-api/main.py"
+        ALERT_SCRIPT_PATH = "/opt/python/microsoft-graph-api/alert.py"
         VAULT_URL = "http://hashicorp-vault.bnh.vn:8200/v1/microsoft/graph-api"
+        JENKINS_URL = "http://jenkins.gitlab.bnh.vn"
     }
 
     stages {
@@ -26,8 +28,22 @@ pipeline {
                     def GIT_LOG = sh(script: "git log -1 --format=%B", returnStdout: true).trim()
 
                     withCredentials([string(credentialsId: 'vault-token', variable: 'VAULT_TOKEN')]) {
-                        sh "python3 ${SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${ASSET_PATH} ${GIT_URL} ${GIT_COMMIT} ${ASSET_NAME} '${GIT_LOG}'"
+                        sh "python3 ${BUILD_SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${ASSET_PATH} ${GIT_URL} ${GIT_COMMIT} ${ASSET_NAME} '${GIT_LOG}'"
                     }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()
+        }
+        
+        failure {
+            script {
+                withCredentials([string(credentialsId: 'vault-token', variable: 'VAULT_TOKEN')]) {
+                    sh "python3 ${ALERT_SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${JOB_NAME} ${JENKINS_URL} ${BUILD_ID}"
                 }
             }
         }
