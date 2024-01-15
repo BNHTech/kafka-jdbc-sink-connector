@@ -96,12 +96,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     }
 
-    @Override
-    public List<SinkRecord> flush() throws SQLException {
-        if (records.isEmpty()) {
-            log.debug("Records is empty");
-            return new ArrayList<>();
-        }
+    private List<SinkRecord> flushWithDelete() throws SQLException {
         String currentOpType = null;
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
@@ -113,7 +108,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             if (currentOpType == null) {
                 currentOpType = recordOpType;
             }
-            if (!currentOpType.equalsIgnoreCase(config.deleteAsUpdateColValue)) {
+            if (!currentOpType.equalsIgnoreCase(recordOpType)) {
                 log.debug("Trigger batch execution on OP_TYPE changes");
                 if (currentOpType.equals(config.deleteAsUpdateColValue)) {
                     // execute all batched UPSERT
@@ -138,6 +133,31 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         final List<SinkRecord> flushedRecords = records;
         records = new ArrayList<>();
         return flushedRecords;
+    }
+
+    private List<SinkRecord> flushWithUpsertOnly() throws SQLException {
+        log.debug("Flushing {} buffered records", records.size());
+        for (SinkRecord sinkRecord : records) {
+            log.debug("creating UPSERT statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.deleteAsUpdateKey));
+            updateStatementBinder.bindRecord(sinkRecord);
+        }
+        executeUpdates();
+        final List<SinkRecord> flushedRecords = records;
+        records = new ArrayList<>();
+        return flushedRecords;
+    }
+
+    @Override
+    public List<SinkRecord> flush() throws SQLException {
+        if (records.isEmpty()) {
+            log.debug("Records is empty");
+            return new ArrayList<>();
+        }
+        if (config.deleteMode != JdbcAuditSinkConfig.DeleteMode.NONE) {
+            return flushWithDelete();
+        } else {
+            return flushWithUpsertOnly();
+        }
     }
 
     @Override
