@@ -201,8 +201,13 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             }
             expressionBuilder.append(" ")
                     .append(new ColumnId(this.tableId, cond[0]))
-                    .append(" != ")
-                    .appendStringQuoted(cond[1]);
+                    .append(" != ");
+            if (cond[1].equalsIgnoreCase("null")) {
+                expressionBuilder.append("NULL");
+            } else {
+                expressionBuilder.appendStringQuoted(cond[1]);
+            }
+
         }
         expressionBuilder.append(" )");
         return expressionBuilder.toString();

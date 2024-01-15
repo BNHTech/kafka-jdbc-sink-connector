@@ -87,29 +87,31 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     SCN_COL_FIELD_DISPLAY);
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
     public final DeleteMode deleteMode;
-    public final String deleteAsUpdateColName;
-    public final String deleteAsUpdateColValue;
-    public final Set<String> deleteAsUpdateValueFields;
-    public final String deleteAsUpdateKey;
+    public String deleteAsUpdateColName;
+    public String deleteAsUpdateColValue;
+    public Set<String> deleteAsUpdateValueFields = new HashSet<>();
+    public String deleteAsUpdateKey;
     public final String auditTsCol;
     public final String scnCol;
-    public final List<String[]> deleteAsUpdateConditions;
+    public List<String[]> deleteAsUpdateConditions;
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
-        deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
-        log.info("DELETE OP Mode: {}", deleteMode);
-        deleteAsUpdateConditions = this.getList(DELETE_AS_UPDATE_IDENTIFIER).stream()
-                .map(x -> x.split("=")).collect(Collectors.toList());
-        deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
-        deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
-        deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
-        log.info("DELETE OP Key: {}", deleteAsUpdateKey);
-        log.info("DELETE OP fields to retains: {}", DELETE_AS_UPDATE_VALUE_SCHEMA);
-        this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
-        this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
         auditTsCol = getString(AUDIT_TS_FIELD);
         scnCol = getString(SCN_COL_FIELD);
+        deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
+        log.info("DELETE OP Mode: {}", deleteMode);
+        if (deleteMode != DeleteMode.NONE) {
+            deleteAsUpdateConditions = this.getList(DELETE_AS_UPDATE_IDENTIFIER).stream()
+                    .map(x -> x.split("=")).collect(Collectors.toList());
+            deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
+            deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
+            deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
+            log.info("DELETE OP Key: {}", deleteAsUpdateKey);
+            log.info("DELETE OP fields to retains: {}", DELETE_AS_UPDATE_VALUE_SCHEMA);
+            this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
+            this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
+        }
     }
 
     public static void main(String... args) {
