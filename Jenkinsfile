@@ -23,6 +23,7 @@ pipeline {
             steps {
                 script {
                     def VERSION = sh(script: 'mvn help:evaluate -Dexpression=project.version -q -DforceStdout', returnStdout: true).trim()
+
                     def ASSET_PATH = "target/components/packages/BNHTech-kafka-jdbc-sink-connector-${VERSION}.zip"
                     def ASSET_NAME = "BNHTech-kafka-jdbc-sink-connector-${VERSION}.zip"
                     def GIT_LOG = sh(script: "git log -1 --format=%B", returnStdout: true).trim()
