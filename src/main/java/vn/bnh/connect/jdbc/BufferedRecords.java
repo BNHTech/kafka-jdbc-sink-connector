@@ -101,23 +101,23 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
             String recordOpType = ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName);
-            if (config.deleteMode == JdbcAuditSinkConfig.DeleteMode.NONE && recordOpType.equalsIgnoreCase(config.deleteAsUpdateColValue)) {
-                log.debug("Skipping record with key '{}' due to DeleteMode.None", sinkRecord.key());
-                continue;
-            }
             if (currentOpType == null) {
+                log.debug("init statement batch");
                 currentOpType = recordOpType;
             }
             if (!currentOpType.equalsIgnoreCase(recordOpType)) {
                 log.debug("Trigger batch execution on OP_TYPE changes, batched OP_TYPE: {}, current OP_TYPE: {}", currentOpType, recordOpType);
                 if (currentOpType.equals(config.deleteAsUpdateColValue)) {
                     // execute all batched UPSERT
-                    log.debug("Execute batched UPSERT statements");
-                    executeUpdates();
-                } else {
                     log.debug("Execute batched DELETE statements");
                     executeDeletes();
+
+                } else {
+                    log.debug("Execute batched UPSERT statements");
+                    executeUpdates();
+
                 }
+                currentOpType = recordOpType;
             }
             if (isDeleteAsUpdate && recordOpType.equals(config.deleteAsUpdateColValue)) {
                 sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
