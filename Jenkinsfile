@@ -28,7 +28,13 @@ pipeline {
                     def GIT_LOG = sh(script: "git log -1 --format=%B", returnStdout: true).trim()
 
                     withCredentials([string(credentialsId: 'vault-token', variable: 'VAULT_TOKEN')]) {
-                        sh "python3 ${BUILD_SCRIPT_PATH} ${VAULT_URL} ${VAULT_TOKEN} ${ASSET_PATH} ${GIT_URL} ${GIT_COMMIT} ${ASSET_NAME} '${GIT_LOG}'"
+                        sh """
+                            python3 ${BUILD_SCRIPT_PATH} \
+                            ${VAULT_URL} ${VAULT_TOKEN} \
+                            ${ASSET_PATH} ${GIT_URL} \
+                            ${GIT_COMMIT} ${ASSET_NAME} \
+                            "${GIT_LOG}"
+                        """
                     }
                 }
             }
