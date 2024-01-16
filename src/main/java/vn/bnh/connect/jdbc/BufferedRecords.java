@@ -139,7 +139,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private List<SinkRecord> flushWithUpsertOnly() throws SQLException {
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
-            log.debug("creating UPSERT statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.deleteAsUpdateKey));
+            log.debug("creating UPSERT statement for message's key: {}", sinkRecord.key());
             updateStatementBinder.bindRecord(sinkRecord);
         }
         executeUpdates();
