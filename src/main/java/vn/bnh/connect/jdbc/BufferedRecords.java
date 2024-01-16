@@ -109,7 +109,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 currentOpType = recordOpType;
             }
             if (!currentOpType.equalsIgnoreCase(recordOpType)) {
-                log.debug("Trigger batch execution on OP_TYPE changes");
+                log.debug("Trigger batch execution on OP_TYPE changes, batched OP_TYPE: {}, current OP_TYPE: {}", currentOpType, recordOpType);
                 if (currentOpType.equals(config.deleteAsUpdateColValue)) {
                     // execute all batched UPSERT
                     log.debug("Execute batched UPSERT statements");
@@ -128,6 +128,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 updateStatementBinder.bindRecord(sinkRecord);
             }
         }
+        log.debug("Execute left-over batched statements");
         executeDeletes();
         executeUpdates();
         final List<SinkRecord> flushedRecords = records;
@@ -162,6 +163,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     @Override
     public List<SinkRecord> add(SinkRecord sinkRecord) throws SQLException, TableAlterOrCreateException {
+        log.debug("adding new record");
         this.recordValidator.validate(sinkRecord);
         if (isDeleteAsUpdate && deleteOpValueSchema == null) {
             log.debug("Begin Initialize DELETE as UPDATE configurations");
