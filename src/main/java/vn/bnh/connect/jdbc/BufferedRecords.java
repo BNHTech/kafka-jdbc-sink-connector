@@ -65,7 +65,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     private void initDeleteAsUpdateSchema(SinkRecord sinkRecord) throws SQLException {
         SchemaBuilder valueBuilder = SchemaBuilder.struct();
-        config.deleteAsUpdateValueFields.forEach(field -> {
+        config.getDeleteAsUpdateValueFields().forEach(field -> {
             Field f = sinkRecord.valueSchema().field(field);
             if (f == null) {
                 log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
@@ -78,7 +78,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.trace("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
         this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
-        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.deleteAsUpdateKey), this.config.fieldsWhitelist, schemaPair);
+        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
+                Collections.singletonList(this.config.getDeleteAsUpdateKey()), this.config.fieldsWhitelist, schemaPair);
         this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
 
     }
@@ -100,37 +101,37 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         String currentOpType = null;
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
-            String recordOpType = ((Struct) sinkRecord.value()).getString(config.deleteAsUpdateColName);
+            String recordOpType = ((Struct) sinkRecord.value()).getString(config.getDeleteAsUpdateColName());
             if (currentOpType == null) {
                 log.debug("init statement batch");
                 currentOpType = recordOpType;
             }
             if (!currentOpType.equalsIgnoreCase(recordOpType)) {
                 log.debug("Trigger batch execution on OP_TYPE changes, batched OP_TYPE: {}, current OP_TYPE: {}", currentOpType, recordOpType);
-                if (currentOpType.equals(config.deleteAsUpdateColValue)) {
+                if (currentOpType.equals(config.getDeleteAsUpdateColValue())) {
                     // execute all batched UPSERT
                     log.debug("Execute batched DELETE statements");
-                    executeDeletes();
+                    executeDeletesStmt();
 
                 } else {
                     log.debug("Execute batched UPSERT statements");
-                    executeUpdates();
+                    executeUpdatesStmt();
 
                 }
                 currentOpType = recordOpType;
             }
-            if (isDeleteAsUpdate && recordOpType.equals(config.deleteAsUpdateColValue)) {
+            if (isDeleteAsUpdate && recordOpType.equals(config.getDeleteAsUpdateColValue())) {
                 sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
-                log.debug("creating DELETE statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.deleteAsUpdateKey));
+                log.debug("creating DELETE statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.getDeleteAsUpdateKey()));
                 deleteAsUpdateStatementBinder.bindRecord(sinkRecord);
             } else {
-                log.debug("creating UPSERT statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.deleteAsUpdateKey));
+                log.debug("creating UPSERT statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.getDeleteAsUpdateKey()));
                 updateStatementBinder.bindRecord(sinkRecord);
             }
         }
         log.debug("Execute left-over batched statements");
-        executeDeletes();
-        executeUpdates();
+        executeDeletesStmt();
+        executeUpdatesStmt();
         final List<SinkRecord> flushedRecords = records;
         records = new ArrayList<>();
         return flushedRecords;
@@ -142,7 +143,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             log.debug("creating UPSERT statement for message's key: {}", sinkRecord.key());
             updateStatementBinder.bindRecord(sinkRecord);
         }
-        executeUpdates();
+        executeUpdatesStmt();
         final List<SinkRecord> flushedRecords = records;
         records = new ArrayList<>();
         return flushedRecords;
@@ -163,7 +164,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     @Override
     public List<SinkRecord> add(SinkRecord sinkRecord) throws SQLException, TableAlterOrCreateException {
-        log.debug("adding new record");
+        log.trace("adding new record");
         this.recordValidator.validate(sinkRecord);
         if (isDeleteAsUpdate && deleteOpValueSchema == null) {
             log.debug("Begin Initialize DELETE as UPDATE configurations");
@@ -187,7 +188,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), sinkRecord.valueSchema());
             this.fieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, this.config.pkFields, this.config.fieldsWhitelist, schemaPair);
             this.dbStructure.createOrAmendIfNecessary(this.config, this.connection, this.tableId, this.fieldsMetadata);
-            String insertSql = this.getInsertSql();
+            String insertSql = this.generateInsertStatement();
             this.close();
             this.updatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, insertSql);
             this.updateStatementBinder = this.dbDialect.statementBinder(this.updatePreparedStatement, PK_MODE, schemaPair, this.fieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), this.config.insertMode);
@@ -201,49 +202,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         return flushed;
     }
 
-    String buildDeleteQueryStatement() {
-        List<ColumnId> columns = config.deleteAsUpdateValueFields.stream().filter(f -> !f.equalsIgnoreCase(config.deleteAsUpdateKey)).map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
-        ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
-        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
-                .append(new ColumnId(this.tableId, config.deleteAsUpdateColName)).append(" = ").appendStringQuoted(config.deleteAsUpdateColValue)
-                .append(", ");
-        // set audit timestamp
-        expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
-        if (!columns.isEmpty()) {
-            expressionBuilder.append(", ");
-        }
-        expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
-        expressionBuilder.append(" WHERE ");
-        expressionBuilder.append(new ColumnId(this.tableId, config.deleteAsUpdateKey)).append(" = ?");
-        expressionBuilder.append(" AND (");
-        for (int i = 0; i < config.deleteAsUpdateConditions.size(); i++) {
-            String[] cond = config.deleteAsUpdateConditions.get(i);
-            if (i > 0) {
-                expressionBuilder.append(" OR");
-            }
-            expressionBuilder.append(" ")
-                    .append(new ColumnId(this.tableId, cond[0]))
-                    .append(" != ");
-            if (cond[1].equalsIgnoreCase("null")) {
-                expressionBuilder.append("NULL");
-            } else {
-                expressionBuilder.appendStringQuoted(cond[1]);
-            }
-
-        }
-        expressionBuilder.append(" )");
-        return expressionBuilder.toString();
-    }
-
-    private String getInsertSql() {
-        return buildUpsertQueryStatement(this.tableId, this.asColumns(this.fieldsMetadata.keyFieldNames), this.asColumns(this.fieldsMetadata.nonKeyFieldNames));
-    }
-
-    private Collection<ColumnId> asColumns(Collection<String> names) {
+    private Collection<ColumnId> toColumns(Collection<String> names) {
         return names.stream().filter(name -> !name.equalsIgnoreCase(config.auditTsCol)).map(name -> new ColumnId(this.tableId, name)).collect(Collectors.toList());
     }
 
-    private void executeUpdates() throws SQLException {
+    private void executeUpdatesStmt() throws SQLException {
         int[] batchStatus = updatePreparedStatement.executeBatch();
         for (int updateCount : batchStatus) {
             if (updateCount == Statement.EXECUTE_FAILED) {
@@ -252,7 +215,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         }
     }
 
-    private void executeDeletes() throws SQLException {
+    private void executeDeletesStmt() throws SQLException {
         if (config.deleteMode == JdbcAuditSinkConfig.DeleteMode.NONE) {
             return;
         }
@@ -262,6 +225,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
             }
         }
+    }
+
+    private String generateInsertStatement() {
+        return buildUpsertQueryStatement(this.tableId, this.toColumns(this.fieldsMetadata.keyFieldNames), this.toColumns(this.fieldsMetadata.nonKeyFieldNames));
     }
 
     private String buildUpsertQueryStatement(
@@ -298,6 +265,43 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         builder.append(",").append(AUDIT_TS_VALUE);
         builder.append(")");
         return builder.toString();
+    }
+
+    String buildDeleteQueryStatement() {
+        List<ColumnId> columns = config.getDeleteAsUpdateValueFields().stream()
+                .filter(f -> !f.equalsIgnoreCase(config.getDeleteAsUpdateKey()))
+                .map(f -> new ColumnId(this.tableId, f))
+                .collect(Collectors.toList());
+        ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
+        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
+                .append(new ColumnId(this.tableId, config.getDeleteAsUpdateColName())).append(" = ").appendStringQuoted(config.getDeleteAsUpdateColValue())
+                .append(", ");
+        // set audit timestamp
+        expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
+        if (!columns.isEmpty()) {
+            expressionBuilder.append(", ");
+        }
+        expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
+        expressionBuilder.append(" WHERE ");
+        expressionBuilder.append(new ColumnId(this.tableId, config.getDeleteAsUpdateKey())).append(" = ?");
+        expressionBuilder.append(" AND (");
+        for (int i = 0; i < config.getDeleteAsUpdateConditions().size(); i++) {
+            String[] cond = config.getDeleteAsUpdateConditions().get(i);
+            if (i > 0) {
+                expressionBuilder.append(" OR");
+            }
+            expressionBuilder.append(" ")
+                    .append(new ColumnId(this.tableId, cond[0]))
+                    .append(" != ");
+            if (cond[1].equalsIgnoreCase("null")) {
+                expressionBuilder.append("NULL");
+            } else {
+                expressionBuilder.appendStringQuoted(cond[1]);
+            }
+
+        }
+        expressionBuilder.append(" )");
+        return expressionBuilder.toString();
     }
 
 }

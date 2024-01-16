@@ -19,16 +19,18 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String DELETE_AS_UPDATE_IDENTIFIER_DOC = "Message value to identify the SQL statement is DELETE as UPDATE (e.g: when OP_TYPE = 'D')";
     public static final String DELETE_MODE = "delete.mode";
     public static final String DELETE_MODE_DISPLAY = "Delete Mode";
-    public static final String DELETE_MODE_DOC = "the delete mode to use:\n" + "- DELETE: actually delete row(s) in database\n" + "- UPDATE: update a column to specific value";
+    public static final String DELETE_MODE_DOC = "the delete mode to use:\n" +
+            "- DELETE: actually delete row(s) in database\n" +
+            "- UPDATE: update a column to specific value";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA = "delete.as.update.value.schema";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY = "Delete as UPDATE fields to retain";
     public static final String DELETE_AS_UPDATE_VALUE_SCHEMA_DOC = "Message's fields to retain (other than field specified in delete.as.update.identifier) when building UPDATE statement for DELETE as UPDATE mode";
     public static final String AUDIT_TS_FIELD = "audit.timestamp.column";
     public static final String AUDIT_TS_FIELD_DISPLAY = "Audit timestamp column";
     public static final String AUDIT_TS_FIELD_DOC = "Database column name to INSERT/UPDATE current time when executing SQL statement";
-    public static final String SCN_COL_FIELD = "audit.scn.column";
-    public static final String SCN_COL_FIELD_DISPLAY = "Audit SCN column";
-    public static final String SCN_COL_FIELD_DOC = "SCN column to check if data should be updated";
+    public static final String HIST_RECORD_STATUS_FIELD = "audit.scn.column";
+    public static final String HIST_RECORD_STATUS_FIELD_DISPLAY = "Audit SCN column";
+    public static final String HIST_RECORD_STATUS_FIELD_DOC = "SCN column to check if data should be updated";
     public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF
             .define(DELETE_MODE,
                     ConfigDef.Type.STRING,
@@ -76,29 +78,33 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     5,
                     ConfigDef.Width.MEDIUM,
                     AUDIT_TS_FIELD_DISPLAY)
-            .define(SCN_COL_FIELD,
+            .define(HIST_RECORD_STATUS_FIELD,
                     ConfigDef.Type.STRING,
                     null,
                     ConfigDef.Importance.MEDIUM,
-                    SCN_COL_FIELD_DOC,
+                    HIST_RECORD_STATUS_FIELD_DOC,
                     GROUP,
                     6,
                     ConfigDef.Width.MEDIUM,
-                    SCN_COL_FIELD_DISPLAY);
+                    HIST_RECORD_STATUS_FIELD_DISPLAY);
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
     public final DeleteMode deleteMode;
-    public String deleteAsUpdateColName;
-    public String deleteAsUpdateColValue;
-    public Set<String> deleteAsUpdateValueFields = new HashSet<>();
-    public String deleteAsUpdateKey;
+    private String deleteAsUpdateColName;
+    private String deleteAsUpdateColValue;
+    private Set<String> deleteAsUpdateValueFields = new HashSet<>();
+    private String deleteAsUpdateKey;
     public final String auditTsCol;
-    public final String scnCol;
-    public List<String[]> deleteAsUpdateConditions;
+    public final String[] histRecStatusUpdateCondition;
+    public final String histRecStatusCol;
+    public final String histRecStatusValue;
+    private List<String[]> deleteAsUpdateConditions;
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
         auditTsCol = getString(AUDIT_TS_FIELD);
-        scnCol = getString(SCN_COL_FIELD);
+        histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_FIELD).split("=");
+        histRecStatusCol = histRecStatusUpdateCondition[0];
+        histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
         deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
         log.info("DELETE OP Mode: {}", deleteMode);
         if (deleteMode != DeleteMode.NONE) {
@@ -107,10 +113,11 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
             deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
             deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
             deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
-            log.info("DELETE OP Key: {}", deleteAsUpdateKey);
-            log.info("DELETE OP fields to retains: {}", DELETE_AS_UPDATE_VALUE_SCHEMA);
             this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
             this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
+            log.info("DELETE OP Key: {}", deleteAsUpdateKey);
+            log.info("DELETE OP fields to retains: {}", deleteAsUpdateValueFields);
+
         }
     }
 
@@ -161,4 +168,23 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         }
     }
 
+    public String getDeleteAsUpdateColName() {
+        return deleteAsUpdateColName;
+    }
+
+    public String getDeleteAsUpdateColValue() {
+        return deleteAsUpdateColValue;
+    }
+
+    public Set<String> getDeleteAsUpdateValueFields() {
+        return deleteAsUpdateValueFields;
+    }
+
+    public String getDeleteAsUpdateKey() {
+        return deleteAsUpdateKey;
+    }
+
+    public List<String[]> getDeleteAsUpdateConditions() {
+        return deleteAsUpdateConditions;
+    }
 }
