@@ -33,16 +33,21 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private final DatabaseDialect dbDialect;
     private final DbStructure dbStructure;
     FieldsMetadata fieldsMetadata;
-    private Schema deleteOpValueSchema = null;
     private List<SinkRecord> records = new ArrayList<>();
     private Schema keySchema;
     private Schema valueSchema;
     private PreparedStatement updatePreparedStatement;
     private DatabaseDialect.StatementBinder updateStatementBinder;
+    private Schema deleteOpValueSchema = null;
     private PreparedStatement deleteAsUpdatePreparedStatement;
     private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
     private final RecordValidator recordValidator;
     private static final JdbcSinkConfig.PrimaryKeyMode PK_MODE = JdbcSinkConfig.PrimaryKeyMode.RECORD_VALUE;
+    private final boolean shouldProcessHistRecord;
+    private Schema histTableSchema = null;
+    private PreparedStatement histTablePreparedStatement;
+    private DatabaseDialect.StatementBinder histTableStatementBinder;
+
 
     public BufferedRecords(
             JdbcAuditSinkConfig config,
@@ -59,6 +64,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         this.connection = connection;
         this.isDeleteAsUpdate = config.deleteMode.equals(JdbcAuditSinkConfig.DeleteMode.UPDATE);
         log.info("DELETE as UPDATE mode: {}", this.isDeleteAsUpdate);
+        this.shouldProcessHistRecord = config.histRecordKey == null;
+        log.info("Should process HIST table's records: {}", this.shouldProcessHistRecord);
         this.recordValidator = RecordValidator.create(config);
 
     }
@@ -82,6 +89,31 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 Collections.singletonList(this.config.getDeleteAsUpdateKey()), this.config.fieldsWhitelist, schemaPair);
         this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
 
+    }
+
+    private void initHistRecordSchema(SinkRecord sinkRecord) throws SQLException {
+        SchemaBuilder valueBuilder = SchemaBuilder.struct();
+        config.getHistRecordValueFields().forEach(field -> {
+            Field f = sinkRecord.valueSchema().field(field);
+            if (f == null) {
+                log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
+                throw new RuntimeException(String.format("Field %s does not exists in message schema", field));
+            }
+            valueBuilder.field(field, f.schema());
+        });
+        this.histTableSchema = valueBuilder.build();
+        String histTableSql = this.buildUpdateHistQueryStatement();
+        log.trace("HIST table SQL: {}", histTableSql);
+        this.histTablePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, histTableSql);
+        SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.histTableSchema);
+        FieldsMetadata histTableFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
+                Collections.singletonList(this.config.histRecordKey), this.config.fieldsWhitelist, schemaPair);
+        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(
+                this.deleteAsUpdatePreparedStatement,
+                PK_MODE,
+                schemaPair,
+                histTableFieldsMetadata,
+                this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
     }
 
     private SinkRecord convertDeleteAsUpdateRecord(SinkRecord sinkRecord) {
@@ -170,6 +202,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             log.debug("Begin Initialize DELETE as UPDATE configurations");
             initDeleteAsUpdateSchema(sinkRecord);
             log.debug("End Initialize DELETE as UPDATE configurations");
+        }
+        if (shouldProcessHistRecord && histTableSchema == null) {
+            log.debug("Begin initialize HIST table record configuration");
+            initHistRecordSchema(sinkRecord);
+            log.debug("End initialize HIST table record configuration");
         }
         List<SinkRecord> flushed = new ArrayList<>();
         boolean schemaChanged = false;
@@ -291,12 +328,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 expressionBuilder.append(" OR");
             }
             expressionBuilder.append(" ")
-                    .append(new ColumnId(this.tableId, cond[0]))
-                    .append(" != ");
+                    .append(new ColumnId(this.tableId, cond[0]));
             if (cond[1].equalsIgnoreCase("null")) {
-                expressionBuilder.append("NULL");
+                expressionBuilder.append("IS NOT NULL");
             } else {
-                expressionBuilder.appendStringQuoted(cond[1]);
+                expressionBuilder.append(" != ").appendStringQuoted(cond[1]);
             }
 
         }
@@ -304,4 +340,29 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         return expressionBuilder.toString();
     }
 
+    String buildUpdateHistQueryStatement() {
+        List<ColumnId> columns = config.getHistRecordValueFields().stream()
+                .filter(f -> !f.equalsIgnoreCase(config.histRecordKey))
+                .map(f -> new ColumnId(this.tableId, f))
+                .collect(Collectors.toList());
+        ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
+        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
+                // set audit timestamp
+                .append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
+        if (!columns.isEmpty()) {
+            expressionBuilder.append(", ");
+        }
+        expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
+        expressionBuilder.append(" WHERE ");
+        expressionBuilder.append(new ColumnId(this.tableId, config.histRecordKey)).append(" = ?");
+        expressionBuilder.append(" AND ")
+                .append(new ColumnId(this.tableId, config.histRecStatusCol));
+        if (config.histRecStatusValue == null) {
+            expressionBuilder.append(" IS NOT NULL");
+        } else {
+            expressionBuilder.append(" != ").appendStringQuoted(config.histRecStatusValue);
+        }
+
+        return expressionBuilder.toString();
+    }
 }

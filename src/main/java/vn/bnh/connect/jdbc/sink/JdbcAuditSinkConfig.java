@@ -28,9 +28,17 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String AUDIT_TS_FIELD = "audit.timestamp.column";
     public static final String AUDIT_TS_FIELD_DISPLAY = "Audit timestamp column";
     public static final String AUDIT_TS_FIELD_DOC = "Database column name to INSERT/UPDATE current time when executing SQL statement";
-    public static final String HIST_RECORD_STATUS_FIELD = "audit.scn.column";
-    public static final String HIST_RECORD_STATUS_FIELD_DISPLAY = "Audit SCN column";
-    public static final String HIST_RECORD_STATUS_FIELD_DOC = "SCN column to check if data should be updated";
+    public static final String HIST_RECORD_STATUS_KEY = "hist.table.record.status.key";
+    public static final String HIST_RECORD_STATUS_KEY_DISPLAY = "HIST table record status key field";
+    public static final String HIST_RECORD_STATUS_KEY_DOC = "Key field to build SQL statement for HIST table's record processing";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER = "hist.table.record.status.identifier";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER_DISPLAY = "HIST table's 'record status' column identifier";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER_DOC = "Message's value to identify record is to be used for HIST table workflow (e.g: when REC_STATUS != null ).\n" +
+            "Note: negative match (When input value is 'REC_STATUS=NULL' then SQL statement will be '... WHERE REC_STATUS IS NOT null')";
+    public static final String HIST_RECORD_STATUS_VALUE_SCHEMA = "hist.table.record.status.value.schema";
+    public static final String HIST_RECORD_STATUS_VALUE_SCHEMA_DISPLAY = "HIST table record's value schema";
+    public static final String HIST_RECORD_STATUS_VALUE_SCHEMA_DOC = "Value schema (other than field specified in hist.table.record.status.identifier) when building UPDATE statement for HIST table's records";
+
     public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF
             .define(DELETE_MODE,
                     ConfigDef.Type.STRING,
@@ -78,15 +86,33 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     5,
                     ConfigDef.Width.MEDIUM,
                     AUDIT_TS_FIELD_DISPLAY)
-            .define(HIST_RECORD_STATUS_FIELD,
+            .define(HIST_RECORD_STATUS_KEY,
                     ConfigDef.Type.STRING,
                     null,
                     ConfigDef.Importance.MEDIUM,
-                    HIST_RECORD_STATUS_FIELD_DOC,
+                    HIST_RECORD_STATUS_KEY_DOC,
                     GROUP,
-                    6,
+                    7,
                     ConfigDef.Width.MEDIUM,
-                    HIST_RECORD_STATUS_FIELD_DISPLAY);
+                    HIST_RECORD_STATUS_KEY_DISPLAY)
+            .define(HIST_RECORD_STATUS_IDENTIFIER,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.MEDIUM,
+                    HIST_RECORD_STATUS_IDENTIFIER_DOC,
+                    GROUP,
+                    8,
+                    ConfigDef.Width.MEDIUM,
+                    HIST_RECORD_STATUS_IDENTIFIER_DISPLAY)
+            .define(HIST_RECORD_STATUS_VALUE_SCHEMA,
+                    ConfigDef.Type.LIST,
+                    null,
+                    ConfigDef.Importance.LOW,
+                    HIST_RECORD_STATUS_VALUE_SCHEMA_DOC,
+                    GROUP,
+                    3,
+                    ConfigDef.Width.MEDIUM,
+                    HIST_RECORD_STATUS_VALUE_SCHEMA_DISPLAY);
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
     public final DeleteMode deleteMode;
     private String deleteAsUpdateColName;
@@ -94,17 +120,30 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     private Set<String> deleteAsUpdateValueFields = new HashSet<>();
     private String deleteAsUpdateKey;
     public final String auditTsCol;
-    public final String[] histRecStatusUpdateCondition;
     public final String histRecStatusCol;
     public final String histRecStatusValue;
     private List<String[]> deleteAsUpdateConditions;
+    public final String histRecordKey;
+    private Set<String> histRecordValueFields = new HashSet<>();
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
         auditTsCol = getString(AUDIT_TS_FIELD);
-        histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_FIELD).split("=");
-        histRecStatusCol = histRecStatusUpdateCondition[0];
-        histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
+        histRecordKey = getString(HIST_RECORD_STATUS_KEY);
+        if (histRecordKey != null && !histRecordKey.isBlank()) {
+            String[] histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_IDENTIFIER).split("=");
+            histRecStatusCol = histRecStatusUpdateCondition[0];
+            histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
+            this.histRecordValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
+            this.histRecordValueFields.add(histRecordKey);
+            log.info("HIST Record Key: {}", histRecordValueFields);
+            log.info("HIST Record value schema: {}", histRecordValueFields);
+
+        } else {
+            histRecStatusCol = null;
+            histRecStatusValue = null;
+        }
+
         deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
         log.info("DELETE OP Mode: {}", deleteMode);
         if (deleteMode != DeleteMode.NONE) {
@@ -186,5 +225,9 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
 
     public List<String[]> getDeleteAsUpdateConditions() {
         return deleteAsUpdateConditions;
+    }
+
+    public Set<String> getHistRecordValueFields() {
+        return histRecordValueFields;
     }
 }
