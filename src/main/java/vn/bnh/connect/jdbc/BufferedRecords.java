@@ -129,11 +129,23 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     }
 
-    private List<SinkRecord> flushWithDelete() throws SQLException {
+    private void flushWithDelete() throws SQLException {
         String currentOpType = null;
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
             String recordOpType = ((Struct) sinkRecord.value()).getString(config.getDeleteAsUpdateColName());
+            if (shouldProcessHistRecord) {
+                String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
+                if (config.histRecStatusValue == null && recordHistValue != null) {
+                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    histTableStatementBinder.bindRecord(sinkRecord);
+                    continue;
+                } else if (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue)) {
+                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    histTableStatementBinder.bindRecord(sinkRecord);
+                    continue;
+                }
+            }
             if (currentOpType == null) {
                 log.debug("init statement batch");
                 currentOpType = recordOpType;
@@ -164,21 +176,33 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.debug("Execute left-over batched statements");
         executeDeletesStmt();
         executeUpdatesStmt();
-        final List<SinkRecord> flushedRecords = records;
-        records = new ArrayList<>();
-        return flushedRecords;
+        log.debug("Execute HIST table batch");
+        executeHistUpdateStmt();
     }
 
-    private List<SinkRecord> flushWithUpsertOnly() throws SQLException {
+    private void flushWithUpsertOnly() throws SQLException {
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
+            if (shouldProcessHistRecord) {
+                String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
+                if (config.histRecStatusValue == null && recordHistValue != null) {
+                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    histTableStatementBinder.bindRecord(sinkRecord);
+                    continue;
+                } else if (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue)) {
+                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    histTableStatementBinder.bindRecord(sinkRecord);
+                    continue;
+                }
+            }
+
             log.debug("creating UPSERT statement for message's key: {}", sinkRecord.key());
             updateStatementBinder.bindRecord(sinkRecord);
         }
         executeUpdatesStmt();
-        final List<SinkRecord> flushedRecords = records;
-        records = new ArrayList<>();
-        return flushedRecords;
+        log.debug("Execute HIST table batch");
+        executeHistUpdateStmt();
+
     }
 
     @Override
@@ -188,10 +212,13 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             return new ArrayList<>();
         }
         if (config.deleteMode != JdbcAuditSinkConfig.DeleteMode.NONE) {
-            return flushWithDelete();
+            flushWithDelete();
         } else {
-            return flushWithUpsertOnly();
+            flushWithUpsertOnly();
         }
+        final List<SinkRecord> flushedRecords = records;
+        records = new ArrayList<>();
+        return flushedRecords;
     }
 
     @Override
@@ -257,6 +284,15 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             return;
         }
         int[] batchStatus = deleteAsUpdatePreparedStatement.executeBatch();
+        for (int updateCount : batchStatus) {
+            if (updateCount == Statement.EXECUTE_FAILED) {
+                throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
+            }
+        }
+    }
+
+    private void executeHistUpdateStmt() throws SQLException {
+        int[] batchStatus = histTablePreparedStatement.executeBatch();
         for (int updateCount : batchStatus) {
             if (updateCount == Statement.EXECUTE_FAILED) {
                 throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
