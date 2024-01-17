@@ -108,7 +108,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.histTableSchema);
         FieldsMetadata histTableFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
                 Collections.singletonList(this.config.histRecordKey), this.config.fieldsWhitelist, schemaPair);
-        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(
+        this.histTableStatementBinder = this.dbDialect.statementBinder(
                 this.deleteAsUpdatePreparedStatement,
                 PK_MODE,
                 schemaPair,
@@ -136,11 +136,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             String recordOpType = ((Struct) sinkRecord.value()).getString(config.getDeleteAsUpdateColName());
             if (shouldProcessHistRecord) {
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
-                if (config.histRecStatusValue == null && recordHistValue != null) {
-                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
-                    histTableStatementBinder.bindRecord(sinkRecord);
-                    continue;
-                } else if (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue)) {
+                if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
                     log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
@@ -185,11 +181,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         for (SinkRecord sinkRecord : records) {
             if (shouldProcessHistRecord) {
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
-                if (config.histRecStatusValue == null && recordHistValue != null) {
-                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
-                    histTableStatementBinder.bindRecord(sinkRecord);
-                    continue;
-                } else if (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue)) {
+                if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
                     log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
