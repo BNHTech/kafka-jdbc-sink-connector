@@ -134,7 +134,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
             String[] histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_IDENTIFIER).split("=");
             this.histRecStatusCol = histRecStatusUpdateCondition[0];
             this.histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
-            this.histRecordValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
+            this.histRecordValueFields = new HashSet<>(this.getList(HIST_RECORD_STATUS_VALUE_SCHEMA));
             this.histRecordValueFields.add(histRecordKey);
             log.info("HIST Record Key: {}", histRecordKey);
             log.info("HIST Record value schema: {}", histRecordValueFields);
