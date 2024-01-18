@@ -44,7 +44,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private final RecordValidator recordValidator;
     private static final JdbcSinkConfig.PrimaryKeyMode PK_MODE = JdbcSinkConfig.PrimaryKeyMode.RECORD_VALUE;
     private final boolean shouldProcessHistRecord;
-    private Schema histTableSchema = null;
+    private Schema histTableValueSchema = null;
     private PreparedStatement histTablePreparedStatement;
     private DatabaseDialect.StatementBinder histTableStatementBinder;
 
@@ -101,11 +101,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             }
             valueBuilder.field(field, f.schema());
         });
-        this.histTableSchema = valueBuilder.build();
+        this.histTableValueSchema = valueBuilder.build();
         String histTableSql = this.buildUpdateHistQueryStatement();
         log.trace("HIST table SQL: {}", histTableSql);
         this.histTablePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, histTableSql);
-        SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.histTableSchema);
+        SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.histTableValueSchema);
         FieldsMetadata histTableFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
                 Collections.singletonList(this.config.histRecordKey), this.config.fieldsWhitelist, schemaPair);
         this.histTableStatementBinder = this.dbDialect.statementBinder(
@@ -129,6 +129,15 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     }
 
+    private SinkRecord convertToHistRecord(SinkRecord sinkRecord) {
+        log.trace("Begin convert to HIST table record");
+        Struct oldValue = (Struct) sinkRecord.value();
+        Struct newValue = new Struct(histTableValueSchema);
+        histTableValueSchema.fields().forEach(f -> newValue.put(f, oldValue.get(f.name())));
+        log.trace("HIST table record value: {}", newValue);
+        return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), deleteOpValueSchema, newValue, sinkRecord.kafkaOffset());
+    }
+
     private void flushWithDelete() throws SQLException {
         String currentOpType = null;
         log.debug("Flushing {} buffered records", records.size());
@@ -138,6 +147,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
                 if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
                     log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    sinkRecord = convertToHistRecord(sinkRecord);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
                 }
@@ -182,6 +192,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
                 if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
                     log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    sinkRecord = convertToHistRecord(sinkRecord);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
                 }
@@ -220,7 +231,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             initDeleteAsUpdateSchema(sinkRecord);
             log.debug("End Initialize DELETE as UPDATE configurations");
         }
-        if (shouldProcessHistRecord && histTableSchema == null) {
+        if (shouldProcessHistRecord && histTableValueSchema == null) {
             log.debug("Begin initialize HIST table record configuration");
             initHistRecordSchema(sinkRecord);
             log.debug("End initialize HIST table record configuration");
