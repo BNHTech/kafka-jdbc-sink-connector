@@ -102,7 +102,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             valueBuilder.field(field, f.schema());
         });
         this.histTableValueSchema = valueBuilder.build();
-        log.trace("HIST table value schema: {}", this.histTableValueSchema);
+        log.trace("HIST table value schema: {}", this.histTableValueSchema.fields());
         String histTableSql = this.buildUpdateHistQueryStatement();
         log.trace("HIST table SQL: {}", histTableSql);
         this.histTablePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, histTableSql);
@@ -110,7 +110,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         FieldsMetadata histTableFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
                 Collections.singletonList(this.config.histRecordKey), this.config.fieldsWhitelist, schemaPair);
         this.histTableStatementBinder = this.dbDialect.statementBinder(
-                this.deleteAsUpdatePreparedStatement,
+                this.histTablePreparedStatement,
                 PK_MODE,
                 schemaPair,
                 histTableFieldsMetadata,
@@ -131,12 +131,14 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private SinkRecord convertToHistRecord(SinkRecord sinkRecord) {
-        log.trace("Begin convert to HIST table record, value schema: {}", histTableValueSchema);
+        log.trace("Begin convert to HIST table record, value schema: {}", histTableValueSchema.fields());
         Struct oldValue = (Struct) sinkRecord.value();
+        log.trace("sinkRecord original schema: {}", oldValue.schema().fields());
+        log.trace("sinkRecord original value: {}", oldValue);
         Struct newValue = new Struct(histTableValueSchema);
         histTableValueSchema.fields().forEach(f -> newValue.put(f, oldValue.get(f.name())));
         log.trace("HIST table record value: {}", newValue);
-        return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), deleteOpValueSchema, newValue, sinkRecord.kafkaOffset());
+        return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), histTableValueSchema, newValue, sinkRecord.kafkaOffset());
     }
 
     private void flushWithDelete() throws SQLException {
@@ -147,7 +149,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             if (shouldProcessHistRecord) {
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
                 if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
-                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                    log.debug("Adding record to HIST table batch on (config.histValue) '{}' != (record.histValue) '{}'", config.histRecStatusValue, recordHistValue);
                     sinkRecord = convertToHistRecord(sinkRecord);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
@@ -163,11 +165,9 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                     // execute all batched UPSERT
                     log.debug("Execute batched DELETE statements");
                     executeDeletesStmt();
-
                 } else {
                     log.debug("Execute batched UPSERT statements");
                     executeUpdatesStmt();
-
                 }
                 currentOpType = recordOpType;
             }
