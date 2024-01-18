@@ -129,16 +129,16 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
         auditTsCol = getString(AUDIT_TS_FIELD);
-        histRecordKey = getString(HIST_RECORD_STATUS_KEY);
-        if (histRecordKey != null && !histRecordKey.isBlank()) {
+        this.histRecordKey = getString(HIST_RECORD_STATUS_KEY);
+        if (this.histRecordKey != null && !this.histRecordKey.isBlank()) {
             String[] histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_IDENTIFIER).split("=");
-            histRecStatusCol = histRecStatusUpdateCondition[0];
-            histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
+            this.histRecStatusCol = histRecStatusUpdateCondition[0];
+            this.histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
             this.histRecordValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
             this.histRecordValueFields.add(histRecordKey);
-            log.info("HIST Record Key: {}", histRecordValueFields);
+            log.info("HIST Record Key: {}", histRecordKey);
             log.info("HIST Record value schema: {}", histRecordValueFields);
-
+            log.debug("HIST record condition: record.{} != {}", histRecStatusCol, histRecStatusValue);
         } else {
             histRecStatusCol = null;
             histRecStatusValue = null;
@@ -229,5 +229,23 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
 
     public Set<String> getHistRecordValueFields() {
         return histRecordValueFields;
+    }
+
+    @Override
+    public String toString() {
+
+        return "JdbcAuditSinkConfig{" +
+                "deleteMode=" + deleteMode +
+                ", \ndeleteAsUpdateColName='" + deleteAsUpdateColName + '\'' +
+                ", \ndeleteAsUpdateColValue='" + deleteAsUpdateColValue + '\'' +
+                ", \ndeleteAsUpdateValueFields=" + deleteAsUpdateValueFields +
+                ", \ndeleteAsUpdateKey='" + deleteAsUpdateKey + '\'' +
+                ", \nauditTsCol='" + auditTsCol + '\'' +
+                ", \nhistRecStatusCol='" + histRecStatusCol + '\'' +
+                ", \nhistRecStatusValue='" + histRecStatusValue + '\'' +
+                ", \ndeleteAsUpdateConditions=" + deleteAsUpdateConditions +
+                ", \nhistRecordKey='" + histRecordKey + '\'' +
+                ", \nhistRecordValueFields=" + histRecordValueFields +
+                '}';
     }
 }

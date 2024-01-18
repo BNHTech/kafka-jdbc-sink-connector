@@ -64,7 +64,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         this.connection = connection;
         this.isDeleteAsUpdate = config.deleteMode.equals(JdbcAuditSinkConfig.DeleteMode.UPDATE);
         log.info("DELETE as UPDATE mode: {}", this.isDeleteAsUpdate);
-        this.shouldProcessHistRecord = config.histRecordKey == null;
+        this.shouldProcessHistRecord = config.histRecordKey != null;
         log.info("Should process HIST table's records: {}", this.shouldProcessHistRecord);
         this.recordValidator = RecordValidator.create(config);
 
@@ -172,7 +172,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.debug("Execute left-over batched statements");
         executeDeletesStmt();
         executeUpdatesStmt();
-        log.debug("Execute HIST table batch");
         executeHistUpdateStmt();
     }
 
@@ -192,7 +191,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             updateStatementBinder.bindRecord(sinkRecord);
         }
         executeUpdatesStmt();
-        log.debug("Execute HIST table batch");
         executeHistUpdateStmt();
 
     }
@@ -284,6 +282,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private void executeHistUpdateStmt() throws SQLException {
+        if (!this.shouldProcessHistRecord) {
+            return;
+        }
+        log.debug("Execute HIST table batch");
         int[] batchStatus = histTablePreparedStatement.executeBatch();
         for (int updateCount : batchStatus) {
             if (updateCount == Statement.EXECUTE_FAILED) {
