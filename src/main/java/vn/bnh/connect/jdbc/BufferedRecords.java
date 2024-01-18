@@ -76,7 +76,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             Field f = sinkRecord.valueSchema().field(field);
             if (f == null) {
                 log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
-                throw new RuntimeException(String.format("Field %s does not exists in message schema", field));
+                throw new RuntimeException(String.format("Field '%s' does not exists in message schema", field));
             }
             valueBuilder.field(field, f.schema());
         });
@@ -97,11 +97,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             Field f = sinkRecord.valueSchema().field(field);
             if (f == null) {
                 log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
-                throw new RuntimeException(String.format("Field %s does not exists in message schema", field));
+                throw new RuntimeException(String.format("Field '%s' does not exists in message schema", field));
             }
             valueBuilder.field(field, f.schema());
         });
         this.histTableValueSchema = valueBuilder.build();
+        log.trace("HIST table value schema: {}", this.histTableValueSchema);
         String histTableSql = this.buildUpdateHistQueryStatement();
         log.trace("HIST table SQL: {}", histTableSql);
         this.histTablePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, histTableSql);
@@ -130,7 +131,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private SinkRecord convertToHistRecord(SinkRecord sinkRecord) {
-        log.trace("Begin convert to HIST table record");
+        log.trace("Begin convert to HIST table record, value schema: {}", histTableValueSchema);
         Struct oldValue = (Struct) sinkRecord.value();
         Struct newValue = new Struct(histTableValueSchema);
         histTableValueSchema.fields().forEach(f -> newValue.put(f, oldValue.get(f.name())));
