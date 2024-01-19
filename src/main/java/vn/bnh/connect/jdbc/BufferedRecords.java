@@ -122,7 +122,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         Struct oldValue = (Struct) sinkRecord.value();
         Struct newValue = new Struct(deleteOpValueSchema);
         deleteOpValueSchema.fields().forEach(f -> {
-            log.trace("{}", f);
             newValue.put(f, oldValue.get(f.name()));
         });
         log.trace("UPDATE as DELETE record value: {}", newValue);
@@ -131,13 +130,13 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     private SinkRecord convertToHistRecord(SinkRecord sinkRecord) {
-        log.trace("Begin convert to HIST table record, value schema: {}", histTableValueSchema.fields());
+        log.trace("Begin convert to HIST table record");
         Struct oldValue = (Struct) sinkRecord.value();
-        log.trace("sinkRecord original schema: {}", oldValue.schema().fields());
-        log.trace("sinkRecord original value: {}", oldValue);
+//        log.trace("sinkRecord original schema: {}", oldValue.schema().fields());
+//        log.trace("sinkRecord original value: {}", oldValue);
         Struct newValue = new Struct(histTableValueSchema);
         histTableValueSchema.fields().forEach(f -> newValue.put(f, oldValue.get(f.name())));
-        log.trace("HIST table record value: {}", newValue);
+//        log.trace("HIST table record value: {}", newValue);
         return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), histTableValueSchema, newValue, sinkRecord.kafkaOffset());
     }
 
@@ -148,8 +147,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             String recordOpType = ((Struct) sinkRecord.value()).getString(config.getDeleteAsUpdateColName());
             if (shouldProcessHistRecord) {
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
-                if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
-                    log.debug("Adding record to HIST table batch on (config.histValue) '{}' != (record.histValue) '{}'", config.histRecStatusValue, recordHistValue);
+                if (recordHistValue != null && config.histRecStatusValue.matcher(recordHistValue).matches()) {
+                    log.debug("Adding record to HIST table batch on (config.histValue) '{}' matches (record.histValue) '{}'", config.histRecStatusValue, recordHistValue);
                     sinkRecord = convertToHistRecord(sinkRecord);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
@@ -191,8 +190,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         for (SinkRecord sinkRecord : records) {
             if (shouldProcessHistRecord) {
                 String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
-                if ((config.histRecStatusValue == null && recordHistValue != null) || (config.histRecStatusValue != null && !config.histRecStatusValue.equalsIgnoreCase(recordHistValue))) {
-                    log.debug("Adding record to HIST table batch on (config.histValue) {} != (record.histValue) {}", config.histRecStatusValue, recordHistValue);
+                if (recordHistValue != null && config.histRecStatusValue.matcher(recordHistValue).matches()) {
+                    log.debug("Adding record to HIST table batch on (config.histValue) '{}' matches (record.histValue) '{}'", config.histRecStatusValue, recordHistValue);
                     sinkRecord = convertToHistRecord(sinkRecord);
                     histTableStatementBinder.bindRecord(sinkRecord);
                     continue;
@@ -279,6 +278,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
             }
         }
+        log.trace("UPSERT batch affected rows: {}", batchStatus.length);
+
     }
 
     private void executeDeletesStmt() throws SQLException {
@@ -291,6 +292,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
             }
         }
+        log.trace("DELETE batch affected rows: {}", batchStatus.length);
     }
 
     private void executeHistUpdateStmt() throws SQLException {
@@ -304,6 +306,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                 throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
             }
         }
+        log.trace("HIST batch affected rows: {}", batchStatus.length);
     }
 
     private String generateInsertStatement() {

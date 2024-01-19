@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class JdbcAuditSinkConfig extends JdbcSinkConfig {
@@ -33,8 +34,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String HIST_RECORD_STATUS_KEY_DOC = "Key field to build SQL statement for HIST table's record processing";
     public static final String HIST_RECORD_STATUS_IDENTIFIER = "hist.table.record.status.identifier";
     public static final String HIST_RECORD_STATUS_IDENTIFIER_DISPLAY = "HIST table's 'record status' column identifier";
-    public static final String HIST_RECORD_STATUS_IDENTIFIER_DOC = "Message's value to identify record is to be used for HIST table workflow (e.g: when REC_STATUS != null ).\n" +
-            "Note: negative match (When input value is 'REC_STATUS=NULL' then SQL statement will be '... WHERE REC_STATUS IS NOT null')";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER_DOC = "Message's value to identify record is to be used for HIST table workflow. notes: RegEx pattern";
     public static final String HIST_RECORD_STATUS_VALUE_SCHEMA = "hist.table.record.status.value.schema";
     public static final String HIST_RECORD_STATUS_VALUE_SCHEMA_DISPLAY = "HIST table record's value schema";
     public static final String HIST_RECORD_STATUS_VALUE_SCHEMA_DOC = "Value schema (other than field specified in hist.table.record.status.identifier) when building UPDATE statement for HIST table's records";
@@ -121,7 +121,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     private String deleteAsUpdateKey;
     public final String auditTsCol;
     public final String histRecStatusCol;
-    public final String histRecStatusValue;
+    public final Pattern histRecStatusValue;
     private List<String[]> deleteAsUpdateConditions;
     public final String histRecordKey;
     private Set<String> histRecordValueFields = new HashSet<>();
@@ -131,9 +131,9 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         auditTsCol = getString(AUDIT_TS_FIELD);
         this.histRecordKey = getString(HIST_RECORD_STATUS_KEY);
         if (this.histRecordKey != null && !this.histRecordKey.isBlank()) {
-            String[] histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_IDENTIFIER).split("=");
+            String[] histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_IDENTIFIER).split("=", 2);
             this.histRecStatusCol = histRecStatusUpdateCondition[0];
-            this.histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
+            this.histRecStatusValue = Pattern.compile(histRecStatusUpdateCondition[1]);
             this.histRecordValueFields = new HashSet<>(this.getList(HIST_RECORD_STATUS_VALUE_SCHEMA));
             this.histRecordValueFields.add(histRecordKey);
             log.info("HIST Record Key: {}", histRecordKey);
