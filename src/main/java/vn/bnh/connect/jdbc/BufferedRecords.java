@@ -400,12 +400,13 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.histRecordKey)).append(" = ?");
-        expressionBuilder.append(" AND ")
+        expressionBuilder.append(" AND (")
                 .append(new ColumnId(this.tableId, config.histRecStatusCol));
         if (config.histRecStatusValue == null) {
-            expressionBuilder.append(" IS NOT NULL");
+            expressionBuilder.append(" IS NOT NULL )");
         } else {
-            expressionBuilder.append(" != ").appendStringQuoted(config.histRecStatusValue);
+            expressionBuilder.append(" != ").appendStringQuoted(config.histRecStatusValue)
+                    .append(" OR ").append(config.histRecStatusCol).append(" IS NULL)");
         }
 
         return expressionBuilder.toString();
