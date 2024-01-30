@@ -8,7 +8,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String GROUP = "Audits";
@@ -115,14 +114,14 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     HIST_RECORD_STATUS_VALUE_SCHEMA_DISPLAY);
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
     public final DeleteMode deleteMode;
-    private String deleteAsUpdateColName;
-    private String deleteAsUpdateColValue;
+    private String[] deleteAsUpdateCols;
+    private String[] deleteAsUpdateValues;
     private Set<String> deleteAsUpdateValueFields = new HashSet<>();
     private String deleteAsUpdateKey;
     public final String auditTsCol;
     public final String histRecStatusCol;
     public final Pattern histRecStatusValue;
-    private List<String[]> deleteAsUpdateConditions;
+    private List<String> deleteAsUpdateConditions;
     public final String histRecordKey;
     private Set<String> histRecordValueFields = new HashSet<>();
 
@@ -147,10 +146,16 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
         log.info("DELETE OP Mode: {}", deleteMode);
         if (deleteMode != DeleteMode.NONE) {
-            deleteAsUpdateConditions = this.getList(DELETE_AS_UPDATE_IDENTIFIER).stream()
-                    .map(x -> x.split("=")).collect(Collectors.toList());
-            deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
-            deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
+            this.deleteAsUpdateConditions = this.getList(DELETE_AS_UPDATE_IDENTIFIER);
+            this.deleteAsUpdateCols = new String[deleteAsUpdateConditions.size()];
+            this.deleteAsUpdateValues = new String[deleteAsUpdateConditions.size()];
+            for (int i = 0; i < deleteAsUpdateConditions.size(); i++) {
+                String[] cond = deleteAsUpdateConditions.get(i).split("=", 2);
+                this.deleteAsUpdateCols[i] = cond[0];
+                this.deleteAsUpdateValues[i] = cond[1];
+            }
+//            deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
+//            deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
             deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
             this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
             this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
@@ -207,12 +212,12 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         }
     }
 
-    public String getDeleteAsUpdateColName() {
-        return deleteAsUpdateColName;
+    public String[] getDeleteAsUpdateCols() {
+        return deleteAsUpdateCols;
     }
 
-    public String getDeleteAsUpdateColValue() {
-        return deleteAsUpdateColValue;
+    public String[] getDeleteAsUpdateValues() {
+        return deleteAsUpdateValues;
     }
 
     public Set<String> getDeleteAsUpdateValueFields() {
@@ -223,7 +228,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         return deleteAsUpdateKey;
     }
 
-    public List<String[]> getDeleteAsUpdateConditions() {
+    public List<String> getDeleteAsUpdateConditions() {
         return deleteAsUpdateConditions;
     }
 
@@ -236,14 +241,14 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
 
         return "JdbcAuditSinkConfig{" +
                 "deleteMode=" + deleteMode +
-                ", \ndeleteAsUpdateColName='" + deleteAsUpdateColName + '\'' +
-                ", \ndeleteAsUpdateColValue='" + deleteAsUpdateColValue + '\'' +
+//                ", \ndeleteAsUpdateColName='" + deleteAsUpdateColName + '\'' +
+//                ", \ndeleteAsUpdateColValue='" + deleteAsUpdateColValue + '\'' +
                 ", \ndeleteAsUpdateValueFields=" + deleteAsUpdateValueFields +
                 ", \ndeleteAsUpdateKey='" + deleteAsUpdateKey + '\'' +
                 ", \nauditTsCol='" + auditTsCol + '\'' +
                 ", \nhistRecStatusCol='" + histRecStatusCol + '\'' +
                 ", \nhistRecStatusValue='" + histRecStatusValue + '\'' +
-                ", \ndeleteAsUpdateConditions=" + deleteAsUpdateConditions +
+//                ", \ndeleteAsUpdateConditions=" + deleteAsUpdateConditions +
                 ", \nhistRecordKey='" + histRecordKey + '\'' +
                 ", \nhistRecordValueFields=" + histRecordValueFields +
                 '}';

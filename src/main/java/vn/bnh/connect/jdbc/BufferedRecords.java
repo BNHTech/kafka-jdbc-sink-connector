@@ -39,8 +39,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private PreparedStatement updatePreparedStatement;
     private DatabaseDialect.StatementBinder updateStatementBinder;
     private Schema deleteOpValueSchema = null;
-    private PreparedStatement deleteAsUpdatePreparedStatement;
-    private DatabaseDialect.StatementBinder deleteAsUpdateStatementBinder;
+    private PreparedStatement[] deleteAsUpdatePreparedStatements;
+    private DatabaseDialect.StatementBinder[] deleteAsUpdateStatementBinders;
     private final RecordValidator recordValidator;
     private static final JdbcSinkConfig.PrimaryKeyMode PK_MODE = JdbcSinkConfig.PrimaryKeyMode.RECORD_VALUE;
     private final boolean shouldProcessHistRecord;
@@ -80,14 +80,18 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             }
             valueBuilder.field(field, f.schema());
         });
-        this.deleteOpValueSchema = valueBuilder.build();
-        String deleteAsUpdateSql = this.buildDeleteQueryStatement();
-        log.trace("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
-        this.deleteAsUpdatePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
-        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
-                Collections.singletonList(this.config.getDeleteAsUpdateKey()), this.config.fieldsWhitelist, schemaPair);
-        this.deleteAsUpdateStatementBinder = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatement, PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.getDeleteAsUpdateKey()), this.config.fieldsWhitelist, schemaPair);
+        this.deleteOpValueSchema = valueBuilder.build();
+        this.deleteAsUpdatePreparedStatements = new PreparedStatement[config.getDeleteAsUpdateConditions().size()];
+
+        for (int i = 0; i < config.getDeleteAsUpdateConditions().size(); i++) {
+            String deleteAsUpdateSql = this.buildDeleteQueryStatement(i);
+            log.trace("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
+            this.deleteAsUpdatePreparedStatements[i] = this.dbDialect.createPreparedStatement(this.connection, deleteAsUpdateSql);
+            this.deleteAsUpdateStatementBinders[i] = this.dbDialect.statementBinder(this.deleteAsUpdatePreparedStatements[i], PK_MODE, schemaPair, deleteAsUpdateFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        }
+
 
     }
 
@@ -107,14 +111,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         log.trace("HIST table SQL: {}", histTableSql);
         this.histTablePreparedStatement = this.dbDialect.createPreparedStatement(this.connection, histTableSql);
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.histTableValueSchema);
-        FieldsMetadata histTableFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE,
-                Collections.singletonList(this.config.histRecordKey), this.config.fieldsWhitelist, schemaPair);
-        this.histTableStatementBinder = this.dbDialect.statementBinder(
-                this.histTablePreparedStatement,
-                PK_MODE,
-                schemaPair,
-                histTableFieldsMetadata,
-                this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
+        FieldsMetadata histTableFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.histRecordKey), this.config.fieldsWhitelist, schemaPair);
+        this.histTableStatementBinder = this.dbDialect.statementBinder(this.histTablePreparedStatement, PK_MODE, schemaPair, histTableFieldsMetadata, this.dbStructure.tableDefinition(this.connection, this.tableId), JdbcSinkConfig.InsertMode.UPDATE);
     }
 
     private SinkRecord convertDeleteAsUpdateRecord(SinkRecord sinkRecord) {
@@ -132,21 +130,19 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     private SinkRecord convertToHistRecord(SinkRecord sinkRecord) {
         log.trace("Begin convert to HIST table record");
         Struct oldValue = (Struct) sinkRecord.value();
-//        log.trace("sinkRecord original schema: {}", oldValue.schema().fields());
-//        log.trace("sinkRecord original value: {}", oldValue);
         Struct newValue = new Struct(histTableValueSchema);
         histTableValueSchema.fields().forEach(f -> newValue.put(f, oldValue.get(f.name())));
-//        log.trace("HIST table record value: {}", newValue);
         return new SinkRecord(sinkRecord.topic(), sinkRecord.kafkaPartition(), sinkRecord.keySchema(), sinkRecord.key(), histTableValueSchema, newValue, sinkRecord.kafkaOffset());
     }
 
     private void flushWithDelete() throws SQLException {
-        String currentOpType = null;
+        boolean recordIsDelOp = false;
+        boolean prevRecordIsDelOp;
         log.debug("Flushing {} buffered records", records.size());
         for (SinkRecord sinkRecord : records) {
-            String recordOpType = ((Struct) sinkRecord.value()).getString(config.getDeleteAsUpdateColName());
+            Struct recordValue = (Struct) sinkRecord.value();
             if (shouldProcessHistRecord) {
-                String recordHistValue = ((Struct) sinkRecord.value()).getString(config.histRecStatusCol);
+                String recordHistValue = recordValue.getString(config.histRecStatusCol);
                 if (recordHistValue != null && config.histRecStatusValue.matcher(recordHistValue).matches()) {
                     log.debug("Adding record to HIST table batch on (config.histValue) '{}' matches (record.histValue) '{}'", config.histRecStatusValue, recordHistValue);
                     sinkRecord = convertToHistRecord(sinkRecord);
@@ -154,30 +150,39 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
                     continue;
                 }
             }
-            if (currentOpType == null) {
-                log.debug("init statement batch");
-                currentOpType = recordOpType;
+//            init
+            int deleteOpIdx = -1;
+            for (int i = 0; i < config.getDeleteAsUpdateCols().length; i++) {
+                String field = config.getDeleteAsUpdateCols()[i];
+                String value = config.getDeleteAsUpdateValues()[i];
+                if (recordValue.getString(field).equalsIgnoreCase(value)) {
+                    deleteOpIdx = i;
+                    break;
+                }
             }
-            if (!currentOpType.equalsIgnoreCase(recordOpType)) {
-                log.debug("Trigger batch execution on OP_TYPE changes, batched OP_TYPE: {}, current OP_TYPE: {}", currentOpType, recordOpType);
-                if (currentOpType.equals(config.getDeleteAsUpdateColValue())) {
-                    // execute all batched UPSERT
+            prevRecordIsDelOp = recordIsDelOp;
+            recordIsDelOp = deleteOpIdx > -1;
+            if (isDeleteAsUpdate && recordIsDelOp) {
+                sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
+                log.debug("creating DELETE statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.getDeleteAsUpdateKey()));
+                deleteAsUpdateStatementBinders[deleteOpIdx].bindRecord(sinkRecord);
+            } else {
+                log.debug("creating UPSERT statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.getDeleteAsUpdateKey()));
+                updateStatementBinder.bindRecord(sinkRecord);
+            }
+            if (prevRecordIsDelOp != recordIsDelOp) {
+                log.debug("Trigger batch execution on OP_TYPE changes");
+                if (recordIsDelOp) {
                     log.debug("Execute batched DELETE statements");
                     executeDeletesStmt();
                 } else {
                     log.debug("Execute batched UPSERT statements");
                     executeUpdatesStmt();
                 }
-                currentOpType = recordOpType;
+//                currentOpType = recordOpType;
+//                TODO: switch isProcessingDelOp
             }
-            if (isDeleteAsUpdate && recordOpType.equals(config.getDeleteAsUpdateColValue())) {
-                sinkRecord = convertDeleteAsUpdateRecord(sinkRecord);
-                log.debug("creating DELETE statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.getDeleteAsUpdateKey()));
-                deleteAsUpdateStatementBinder.bindRecord(sinkRecord);
-            } else {
-                log.debug("creating UPSERT statement for message's key: {}, DELETE AS UPDATE key: {}", sinkRecord.key(), ((Struct) sinkRecord.value()).get(config.getDeleteAsUpdateKey()));
-                updateStatementBinder.bindRecord(sinkRecord);
-            }
+
         }
         log.debug("Execute left-over batched statements");
         executeDeletesStmt();
@@ -271,6 +276,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         return names.stream().filter(name -> !name.equalsIgnoreCase(config.auditTsCol)).map(name -> new ColumnId(this.tableId, name)).collect(Collectors.toList());
     }
 
+
     private void executeUpdatesStmt() throws SQLException {
         int[] batchStatus = updatePreparedStatement.executeBatch();
         for (int updateCount : batchStatus) {
@@ -286,7 +292,16 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         if (config.deleteMode == JdbcAuditSinkConfig.DeleteMode.NONE) {
             return;
         }
-        int[] batchStatus = deleteAsUpdatePreparedStatement.executeBatch();
+        for (int i = 0; i < deleteAsUpdatePreparedStatements.length; i++) {
+            executeDeletesStmt(i);
+        }
+    }
+
+    private void executeDeletesStmt(int i) throws SQLException {
+        if (config.deleteMode == JdbcAuditSinkConfig.DeleteMode.NONE) {
+            return;
+        }
+        int[] batchStatus = deleteAsUpdatePreparedStatements[i].executeBatch();
         for (int updateCount : batchStatus) {
             if (updateCount == Statement.EXECUTE_FAILED) {
                 throw new BatchUpdateException("Execution failed for part of the batch update", batchStatus);
@@ -349,15 +364,12 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         return builder.toString();
     }
 
-    String buildDeleteQueryStatement() {
-        List<ColumnId> columns = config.getDeleteAsUpdateValueFields().stream()
-                .filter(f -> !f.equalsIgnoreCase(config.getDeleteAsUpdateKey()))
-                .map(f -> new ColumnId(this.tableId, f))
-                .collect(Collectors.toList());
+    String buildDeleteQueryStatement(int filterConditionIdx) {
+        List<ColumnId> columns = config.getDeleteAsUpdateValueFields().stream().map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
-        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
-                .append(new ColumnId(this.tableId, config.getDeleteAsUpdateColName())).append(" = ").appendStringQuoted(config.getDeleteAsUpdateColValue())
-                .append(", ");
+        String filterCol = config.getDeleteAsUpdateCols()[filterConditionIdx];
+        String filterVal = config.getDeleteAsUpdateValues()[filterConditionIdx];
+        expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ");
         // set audit timestamp
         expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
         if (!columns.isEmpty()) {
@@ -367,29 +379,21 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.getDeleteAsUpdateKey())).append(" = ?");
         expressionBuilder.append(" AND (");
-        for (int i = 0; i < config.getDeleteAsUpdateConditions().size(); i++) {
-            String[] cond = config.getDeleteAsUpdateConditions().get(i);
-            if (i > 0) {
-                expressionBuilder.append(" OR");
-            }
-            expressionBuilder.append(" ")
-                    .append(new ColumnId(this.tableId, cond[0]));
-            if (cond[1].equalsIgnoreCase("null")) {
-                expressionBuilder.append("IS NOT NULL");
-            } else {
-                expressionBuilder.append(" != ").appendStringQuoted(cond[1]);
-            }
 
+        expressionBuilder.append(" ").append(new ColumnId(this.tableId, filterCol));
+
+        if (filterVal.equalsIgnoreCase("null")) {
+            expressionBuilder.append("IS NOT NULL");
+        } else {
+            expressionBuilder.append(" != ").appendStringQuoted(filterVal);
         }
+
         expressionBuilder.append(" )");
         return expressionBuilder.toString();
     }
 
     String buildUpdateHistQueryStatement() {
-        List<ColumnId> columns = config.getHistRecordValueFields().stream()
-                .filter(f -> !f.equalsIgnoreCase(config.histRecordKey))
-                .map(f -> new ColumnId(this.tableId, f))
-                .collect(Collectors.toList());
+        List<ColumnId> columns = config.getHistRecordValueFields().stream().filter(f -> !f.equalsIgnoreCase(config.histRecordKey)).map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
         expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ")
                 // set audit timestamp
@@ -400,13 +404,11 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
         expressionBuilder.append(" WHERE ");
         expressionBuilder.append(new ColumnId(this.tableId, config.histRecordKey)).append(" = ?");
-        expressionBuilder.append(" AND (")
-                .append(new ColumnId(this.tableId, config.histRecStatusCol));
+        expressionBuilder.append(" AND (").append(new ColumnId(this.tableId, config.histRecStatusCol));
         if (config.histRecStatusValue == null) {
             expressionBuilder.append(" IS NOT NULL )");
         } else {
-            expressionBuilder.append(" != ").appendStringQuoted(config.histRecStatusValue)
-                    .append(" OR ").append(config.histRecStatusCol).append(" IS NULL)");
+            expressionBuilder.append(" != ").appendStringQuoted(config.histRecStatusValue).append(" OR ").append(config.histRecStatusCol).append(" IS NULL)");
         }
 
         return expressionBuilder.toString();
