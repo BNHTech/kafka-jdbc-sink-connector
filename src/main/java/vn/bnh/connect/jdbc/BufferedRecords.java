@@ -84,7 +84,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
         FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.getDeleteAsUpdateKey()), this.config.fieldsWhitelist, schemaPair);
         this.deleteAsUpdatePreparedStatements = new PreparedStatement[config.getDeleteAsUpdateConditions().size()];
-
+        this.deleteAsUpdateStatementBinders = new DatabaseDialect.StatementBinder[config.getDeleteAsUpdateConditions().size()];
         for (int i = 0; i < config.getDeleteAsUpdateConditions().size(); i++) {
             String deleteAsUpdateSql = this.buildDeleteQueryStatement(i);
             log.trace("DELETE AS UPDATE SQL: {}", deleteAsUpdateSql);
