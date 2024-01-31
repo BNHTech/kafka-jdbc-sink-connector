@@ -80,9 +80,9 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
             }
             valueBuilder.field(field, f.schema());
         });
+        this.deleteOpValueSchema = valueBuilder.build();
         SchemaPair schemaPair = new SchemaPair(sinkRecord.keySchema(), this.deleteOpValueSchema);
         FieldsMetadata deleteAsUpdateFieldsMetadata = FieldsMetadata.extract(this.tableId.tableName(), PK_MODE, Collections.singletonList(this.config.getDeleteAsUpdateKey()), this.config.fieldsWhitelist, schemaPair);
-        this.deleteOpValueSchema = valueBuilder.build();
         this.deleteAsUpdatePreparedStatements = new PreparedStatement[config.getDeleteAsUpdateConditions().size()];
 
         for (int i = 0; i < config.getDeleteAsUpdateConditions().size(); i++) {
