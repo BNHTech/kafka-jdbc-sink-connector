@@ -365,7 +365,10 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
     }
 
     String buildDeleteQueryStatement(int filterConditionIdx) {
-        List<ColumnId> columns = config.getDeleteAsUpdateValueFields().stream().map(f -> new ColumnId(this.tableId, f)).collect(Collectors.toList());
+        List<ColumnId> columns = config.getDeleteAsUpdateValueFields().stream()
+                .filter(f -> !f.equalsIgnoreCase(config.getDeleteAsUpdateKey()))
+                .map(f -> new ColumnId(this.tableId, f))
+                .collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
         String filterCol = config.getDeleteAsUpdateCols()[filterConditionIdx];
         String filterVal = config.getDeleteAsUpdateValues()[filterConditionIdx];
