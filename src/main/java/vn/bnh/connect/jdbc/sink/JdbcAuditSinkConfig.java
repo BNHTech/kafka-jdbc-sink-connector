@@ -68,7 +68,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     ConfigDef.Width.MEDIUM,
                     DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY)
             .define(DELETE_AS_UPDATE_KEY,
-                    ConfigDef.Type.STRING,
+                    ConfigDef.Type.LIST,
                     null,
                     ConfigDef.Importance.LOW,
                     DELETE_AS_UPDATE_KEY_DOC,
