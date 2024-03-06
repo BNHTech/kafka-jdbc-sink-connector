@@ -116,14 +116,20 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public final DeleteMode deleteMode;
     private String[] deleteAsUpdateCols;
     private String[] deleteAsUpdateValues;
-    private Set<String> deleteAsUpdateValueFields = new HashSet<>();
-    private String deleteAsUpdateKey;
+    private Set<String> deleteAsUpdateFields = new HashSet<>();
+    private Set<String> deleteAsUpdateKey;
     public final String auditTsCol;
     public final String histRecStatusCol;
     public final Pattern histRecStatusValue;
     private List<String> deleteAsUpdateConditions;
     public final String histRecordKey;
     private Set<String> histRecordValueFields = new HashSet<>();
+
+    public Set<String> getDeleteAsUpdateValueFields() {
+        return deleteAsUpdateValueFields;
+    }
+
+    private Set<String> deleteAsUpdateValueFields;
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
@@ -154,13 +160,12 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                 this.deleteAsUpdateCols[i] = cond[0];
                 this.deleteAsUpdateValues[i] = cond[1];
             }
-//            deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
-//            deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
-            deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
+            deleteAsUpdateKey = new HashSet<>(getList(DELETE_AS_UPDATE_KEY));
+            this.deleteAsUpdateFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
+            this.deleteAsUpdateFields.addAll(deleteAsUpdateKey);
             this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
-            this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
             log.info("DELETE OP Key: {}", deleteAsUpdateKey);
-            log.info("DELETE OP fields to retains: {}", deleteAsUpdateValueFields);
+            log.info("DELETE OP fields to retains: {}", deleteAsUpdateFields);
 
         }
     }
@@ -220,11 +225,11 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         return deleteAsUpdateValues;
     }
 
-    public Set<String> getDeleteAsUpdateValueFields() {
-        return deleteAsUpdateValueFields;
+    public Set<String> getDeleteAsUpdateFields() {
+        return deleteAsUpdateFields;
     }
 
-    public String getDeleteAsUpdateKey() {
+    public Set<String> getDeleteAsUpdateKey() {
         return deleteAsUpdateKey;
     }
 
@@ -243,7 +248,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                 "deleteMode=" + deleteMode +
 //                ", \ndeleteAsUpdateColName='" + deleteAsUpdateColName + '\'' +
 //                ", \ndeleteAsUpdateColValue='" + deleteAsUpdateColValue + '\'' +
-                ", \ndeleteAsUpdateValueFields=" + deleteAsUpdateValueFields +
+                ", \ndeleteAsUpdateValueFields=" + deleteAsUpdateFields +
                 ", \ndeleteAsUpdateKey='" + deleteAsUpdateKey + '\'' +
                 ", \nauditTsCol='" + auditTsCol + '\'' +
                 ", \nhistRecStatusCol='" + histRecStatusCol + '\'' +
