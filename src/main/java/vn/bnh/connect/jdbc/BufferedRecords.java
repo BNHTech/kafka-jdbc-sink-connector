@@ -365,7 +365,9 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     String buildDeleteQueryStatement(int filterConditionIdx) {
         List<ColumnId> columns = config.getDeleteAsUpdateValueFields().stream()
-//                .filter(f -> !config.getDeleteAsUpdateKey().contains(f))
+                .map(f -> new ColumnId(this.tableId, f))
+                .collect(Collectors.toList());
+        List<ColumnId> keyCols = config.getDeleteAsUpdateKey().stream()
                 .map(f -> new ColumnId(this.tableId, f))
                 .collect(Collectors.toList());
         ExpressionBuilder expressionBuilder = this.dbDialect.expressionBuilder();
@@ -379,12 +381,8 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         }
         expressionBuilder.appendList().delimitedBy(", ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(columns);
         expressionBuilder.append(" WHERE ");
-        config.getDeleteAsUpdateKey().forEach(k -> {
-            expressionBuilder.append(new ColumnId(this.tableId, k)).append(" = ? ");
-        });
-//        expressionBuilder.append(new ColumnId(this.tableId, config.getDeleteAsUpdateKey())).append(" = ?");
+        expressionBuilder.appendList().delimitedBy(" AND ").transformedBy(ExpressionBuilder.columnNamesWith(" = ?")).of(keyCols);
         expressionBuilder.append(" AND (");
-
         expressionBuilder.append(" ").append(new ColumnId(this.tableId, filterCol));
 
         if (filterVal.equalsIgnoreCase("null")) {
