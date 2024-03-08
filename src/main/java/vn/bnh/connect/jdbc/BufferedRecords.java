@@ -376,8 +376,6 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
         expressionBuilder.append("UPDATE ").append(this.tableId).append(" SET ");
         // set audit timestamp
         expressionBuilder.append(config.auditTsCol).append(" = ").append(AUDIT_TS_VALUE);
-        expressionBuilder.append(keyCols.get(0)).append(" = ?");
-        
         if (!columns.isEmpty()) {
             expressionBuilder.append(", ");
         }
