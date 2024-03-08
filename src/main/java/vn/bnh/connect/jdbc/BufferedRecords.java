@@ -72,7 +72,7 @@ public class BufferedRecords extends io.confluent.connect.jdbc.sink.BufferedReco
 
     private void initDeleteAsUpdateSchema(SinkRecord sinkRecord) throws SQLException {
         SchemaBuilder valueBuilder = SchemaBuilder.struct();
-        config.getDeleteAsUpdateValueFields().forEach(field -> {
+        config.getDeleteAsUpdateFields().forEach(field -> {
             Field f = sinkRecord.valueSchema().field(field);
             if (f == null) {
                 log.error("Field name '{}' does not exists in source schema {} ", field, sinkRecord.valueSchema());
