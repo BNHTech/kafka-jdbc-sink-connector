@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class JdbcAuditSinkConfig extends JdbcSinkConfig {
@@ -28,9 +29,16 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
     public static final String AUDIT_TS_FIELD = "audit.timestamp.column";
     public static final String AUDIT_TS_FIELD_DISPLAY = "Audit timestamp column";
     public static final String AUDIT_TS_FIELD_DOC = "Database column name to INSERT/UPDATE current time when executing SQL statement";
-    public static final String HIST_RECORD_STATUS_FIELD = "audit.scn.column";
-    public static final String HIST_RECORD_STATUS_FIELD_DISPLAY = "Audit SCN column";
-    public static final String HIST_RECORD_STATUS_FIELD_DOC = "SCN column to check if data should be updated";
+    public static final String HIST_RECORD_STATUS_KEY = "hist.table.record.status.key";
+    public static final String HIST_RECORD_STATUS_KEY_DISPLAY = "HIST table record status key field";
+    public static final String HIST_RECORD_STATUS_KEY_DOC = "Key field to build SQL statement for HIST table's record processing";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER = "hist.table.record.status.identifier";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER_DISPLAY = "HIST table's 'record status' column identifier";
+    public static final String HIST_RECORD_STATUS_IDENTIFIER_DOC = "Message's value to identify record is to be used for HIST table workflow. notes: RegEx pattern";
+    public static final String HIST_RECORD_STATUS_VALUE_SCHEMA = "hist.table.record.status.value.schema";
+    public static final String HIST_RECORD_STATUS_VALUE_SCHEMA_DISPLAY = "HIST table record's value schema";
+    public static final String HIST_RECORD_STATUS_VALUE_SCHEMA_DOC = "Value schema (other than field specified in hist.table.record.status.identifier) when building UPDATE statement for HIST table's records";
+
     public static final ConfigDef CONFIG_DEF = JdbcSinkConfig.CONFIG_DEF
             .define(DELETE_MODE,
                     ConfigDef.Type.STRING,
@@ -61,7 +69,7 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     ConfigDef.Width.MEDIUM,
                     DELETE_AS_UPDATE_VALUE_SCHEMA_DISPLAY)
             .define(DELETE_AS_UPDATE_KEY,
-                    ConfigDef.Type.STRING,
+                    ConfigDef.Type.LIST,
                     null,
                     ConfigDef.Importance.LOW,
                     DELETE_AS_UPDATE_KEY_DOC,
@@ -78,33 +86,65 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     5,
                     ConfigDef.Width.MEDIUM,
                     AUDIT_TS_FIELD_DISPLAY)
-            .define(HIST_RECORD_STATUS_FIELD,
+            .define(HIST_RECORD_STATUS_KEY,
                     ConfigDef.Type.STRING,
                     null,
                     ConfigDef.Importance.MEDIUM,
-                    HIST_RECORD_STATUS_FIELD_DOC,
+                    HIST_RECORD_STATUS_KEY_DOC,
                     GROUP,
-                    6,
+                    7,
                     ConfigDef.Width.MEDIUM,
-                    HIST_RECORD_STATUS_FIELD_DISPLAY);
+                    HIST_RECORD_STATUS_KEY_DISPLAY)
+            .define(HIST_RECORD_STATUS_IDENTIFIER,
+                    ConfigDef.Type.STRING,
+                    null,
+                    ConfigDef.Importance.MEDIUM,
+                    HIST_RECORD_STATUS_IDENTIFIER_DOC,
+                    GROUP,
+                    8,
+                    ConfigDef.Width.MEDIUM,
+                    HIST_RECORD_STATUS_IDENTIFIER_DISPLAY)
+            .define(HIST_RECORD_STATUS_VALUE_SCHEMA,
+                    ConfigDef.Type.LIST,
+                    null,
+                    ConfigDef.Importance.LOW,
+                    HIST_RECORD_STATUS_VALUE_SCHEMA_DOC,
+                    GROUP,
+                    3,
+                    ConfigDef.Width.MEDIUM,
+                    HIST_RECORD_STATUS_VALUE_SCHEMA_DISPLAY);
     private static final Logger log = LoggerFactory.getLogger(JdbcAuditSinkConfig.class);
     public final DeleteMode deleteMode;
     private String deleteAsUpdateColName;
     private String deleteAsUpdateColValue;
     private Set<String> deleteAsUpdateValueFields = new HashSet<>();
-    private String deleteAsUpdateKey;
+    private Set<String> deleteAsUpdateKey;
     public final String auditTsCol;
-    public final String[] histRecStatusUpdateCondition;
     public final String histRecStatusCol;
-    public final String histRecStatusValue;
+    public final Pattern histRecStatusValue;
     private List<String[]> deleteAsUpdateConditions;
+    public final String histRecordKey;
+    private Set<String> histRecordValueFields = new HashSet<>();
+    private Set<String> deleteAsUpdateFields = new HashSet<>();
 
     public JdbcAuditSinkConfig(Map<?, ?> props) {
         super(props);
         auditTsCol = getString(AUDIT_TS_FIELD);
-        histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_FIELD).split("=");
-        histRecStatusCol = histRecStatusUpdateCondition[0];
-        histRecStatusValue = histRecStatusUpdateCondition[1].equalsIgnoreCase("null") ? null : histRecStatusUpdateCondition[1];
+        this.histRecordKey = getString(HIST_RECORD_STATUS_KEY);
+        if (this.histRecordKey != null && !this.histRecordKey.isBlank()) {
+            String[] histRecStatusUpdateCondition = getString(HIST_RECORD_STATUS_IDENTIFIER).split("=", 2);
+            this.histRecStatusCol = histRecStatusUpdateCondition[0];
+            this.histRecStatusValue = Pattern.compile(histRecStatusUpdateCondition[1]);
+            this.histRecordValueFields = new HashSet<>(this.getList(HIST_RECORD_STATUS_VALUE_SCHEMA));
+            this.histRecordValueFields.add(histRecordKey);
+            log.info("HIST Record Key: {}", histRecordKey);
+            log.info("HIST Record value schema: {}", histRecordValueFields);
+            log.debug("HIST record condition: record.{} != {}", histRecStatusCol, histRecStatusValue);
+        } else {
+            histRecStatusCol = null;
+            histRecStatusValue = null;
+        }
+
         deleteMode = DeleteMode.valueOf(getString(DELETE_MODE).toUpperCase());
         log.info("DELETE OP Mode: {}", deleteMode);
         if (deleteMode != DeleteMode.NONE) {
@@ -112,9 +152,10 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
                     .map(x -> x.split("=")).collect(Collectors.toList());
             deleteAsUpdateColName = deleteAsUpdateConditions.get(0)[0];
             deleteAsUpdateColValue = deleteAsUpdateConditions.get(0)[1];
-            deleteAsUpdateKey = getString(DELETE_AS_UPDATE_KEY);
+            deleteAsUpdateKey = new HashSet<>(this.getList(DELETE_AS_UPDATE_KEY));
             this.deleteAsUpdateValueFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
-            this.deleteAsUpdateValueFields.add(deleteAsUpdateKey);
+            this.deleteAsUpdateFields = new HashSet<>(this.getList(DELETE_AS_UPDATE_VALUE_SCHEMA));
+            this.deleteAsUpdateFields.addAll(deleteAsUpdateKey);
             log.info("DELETE OP Key: {}", deleteAsUpdateKey);
             log.info("DELETE OP fields to retains: {}", deleteAsUpdateValueFields);
 
@@ -180,11 +221,38 @@ public class JdbcAuditSinkConfig extends JdbcSinkConfig {
         return deleteAsUpdateValueFields;
     }
 
-    public String getDeleteAsUpdateKey() {
+    public Set<String> getDeleteAsUpdateKey() {
         return deleteAsUpdateKey;
     }
 
     public List<String[]> getDeleteAsUpdateConditions() {
         return deleteAsUpdateConditions;
+    }
+
+    public Set<String> getHistRecordValueFields() {
+        return histRecordValueFields;
+    }
+
+    public Set<String> getDeleteAsUpdateFields() {
+        return deleteAsUpdateFields;
+    }
+
+
+    @Override
+    public String toString() {
+
+        return "JdbcAuditSinkConfig{" +
+                "deleteMode=" + deleteMode +
+                ", \ndeleteAsUpdateColName='" + deleteAsUpdateColName + '\'' +
+                ", \ndeleteAsUpdateColValue='" + deleteAsUpdateColValue + '\'' +
+                ", \ndeleteAsUpdateValueFields=" + deleteAsUpdateValueFields +
+                ", \ndeleteAsUpdateKey='" + deleteAsUpdateKey + '\'' +
+                ", \nauditTsCol='" + auditTsCol + '\'' +
+                ", \nhistRecStatusCol='" + histRecStatusCol + '\'' +
+                ", \nhistRecStatusValue='" + histRecStatusValue + '\'' +
+                ", \ndeleteAsUpdateConditions=" + deleteAsUpdateConditions +
+                ", \nhistRecordKey='" + histRecordKey + '\'' +
+                ", \nhistRecordValueFields=" + histRecordValueFields +
+                '}';
     }
 }
